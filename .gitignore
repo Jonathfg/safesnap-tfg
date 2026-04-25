@@ -1,0 +1,32 @@
+# Entorno virtual
+venv/
+env/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Modelos YOLOv8 descargados
+*.pt
+
+# Logs
+*.log
+
+# Archivos temporales de Office
+~$*
+
+# Imágenes subidas temporalmente
+uploads/
+temp/
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

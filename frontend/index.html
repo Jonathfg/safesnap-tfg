@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeSnap — Análisis de privacidad fotográfica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #f7f6f2;
+      --surface:  #ffffff;
+      --border:   #e2e0db;
+      --text:     #1a1917;
+      --muted:    #706e6a;
+      --faint:    #b0aea9;
+      --primary:  #01696f;
+      --primary-h:#0c4e54;
+      --danger:   #ef4444;
+      --warning:  #f97316;
+      --success:  #22c55e;
+      --radius:   0.75rem;
+      --shadow:   0 4px 16px oklch(0.2 0.01 80 / 0.08);
+    }
+    [data-theme="dark"] {
+      --bg:      #141312;
+      --surface: #1c1b19;
+      --border:  #2e2d2b;
+      --text:    #d4d3d0;
+      --muted:   #7a7976;
+      --faint:   #4a4947;
+      --primary: #4f98a3;
+      --primary-h:#227f8b;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', sans-serif; font-size: 15px; background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100dvh; }
+    a, button, input { transition: all 180ms ease; }
+    button { cursor: pointer; border: none; font: inherit; }
+
+    /* NAV */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 2rem;
+      background: color-mix(in oklab, var(--bg) 85%, transparent);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 1.1rem; }
+    .logo svg { color: var(--primary); }
+    .theme-btn { background: none; color: var(--muted); padding: 0.4rem; border-radius: 0.5rem; display: flex; }
+    .theme-btn:hover { color: var(--text); background: var(--border); }
+
+    /* HERO */
+    .hero { text-align: center; padding: 4rem 1.5rem 2.5rem; max-width: 640px; margin: 0 auto; }
+    .hero h1 { font-family: 'Instrument Serif', serif; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.15; margin-bottom: 0.75rem; }
+    .hero h1 em { color: var(--primary); font-style: italic; }
+    .hero p { color: var(--muted); font-size: 1rem; max-width: 480px; margin: 0 auto; }
+
+    /* UPLOAD ZONE */
+    .upload-section { max-width: 680px; margin: 0 auto 2rem; padding: 0 1.5rem; }
+    .drop-zone {
+      border: 2px dashed var(--border); border-radius: var(--radius);
+      padding: 3rem 2rem; text-align: center; cursor: pointer;
+      background: var(--surface); transition: all 200ms ease;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: var(--primary); background: color-mix(in oklab, var(--primary) 5%, var(--surface)); }
+    .drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .drop-icon { color: var(--primary); margin-bottom: 0.75rem; }
+    .drop-title { font-weight: 600; margin-bottom: 0.25rem; }
+    .drop-sub { color: var(--muted); font-size: 0.875rem; }
+
+    /* OPCIONES */
+    .options { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.25rem; }
+    .toggle-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--muted); cursor: pointer; user-select: none; }
+    .toggle-label input[type=checkbox] { accent-color: var(--primary); width: 16px; height: 16px; }
+
+    /* BOTÓN */
+    .btn-primary {
+      width: 100%; margin-top: 1.25rem; padding: 0.875rem;
+      background: var(--primary); color: #fff; border-radius: var(--radius);
+      font-size: 0.9375rem; font-weight: 600; letter-spacing: 0.01em;
+    }
+    .btn-primary:hover { background: var(--primary-h); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* LOADER */
+    .loader { display: none; text-align: center; padding: 2rem; color: var(--muted); }
+    .loader.active { display: block; }
+    .spinner {
+      width: 36px; height: 36px; border: 3px solid var(--border);
+      border-top-color: var(--primary); border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin: 0 auto 0.75rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* RESULTADOS */
+    .results { max-width: 900px; margin: 0 auto 4rem; padding: 0 1.5rem; display: none; }
+    .results.active { display: block; }
+
+    /* RISK BADGE */
+    .risk-banner {
+      display: flex; align-items: center; gap: 1.5rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem 2rem; margin-bottom: 1.5rem;
+      box-shadow: var(--shadow);
+    }
+    .risk-gauge { position: relative; width: 80px; height: 80px; flex-shrink: 0; }
+    .risk-gauge svg { transform: rotate(-90deg); }
+    .risk-gauge .score-text {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; font-size: 1.25rem; font-weight: 700;
+    }
+    .risk-info h2 { font-size: 1.125rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .risk-info p { color: var(--muted); font-size: 0.875rem; max-width: 55ch; }
+
+    /* GRID */
+    .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    @media (max-width: 640px) { .result-grid { grid-template-columns: 1fr; } }
+
+    /* CARDS */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem; box-shadow: var(--shadow);
+    }
+    .card-full { grid-column: 1 / -1; }
+    .card h3 { font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1rem; }
+
+    /* METADATA TABLE */
+    .meta-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+    .meta-table th { text-align: left; color: var(--faint); font-weight: 500; padding: 0 0 0.5rem; border-bottom: 1px solid var(--border); }
+    .meta-table td { padding: 0.5rem 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent); vertical-align: top; }
+    .meta-table td:first-child { font-weight: 500; width: 38%; padding-right: 0.75rem; }
+    .meta-table td:last-child { color: var(--muted); }
+
+    /* RISK BADGES */
+    .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-alto   { background: #fee2e2; color: #b91c1c; }
+    .badge-medio  { background: #ffedd5; color: #c2410c; }
+    .badge-bajo   { background: #f0fdf4; color: #166534; }
+    [data-theme="dark"] .badge-alto  { background: #3b1212; color: #fca5a5; }
+    [data-theme="dark"] .badge-medio { background: #3b1c0a; color: #fdba74; }
+    [data-theme="dark"] .badge-bajo  { background: #0a2a14; color: #86efac; }
+
+    /* IMÁGENES */
+    .img-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 500px) { .img-compare { grid-template-columns: 1fr; } }
+    .img-wrap { text-align: center; }
+    .img-wrap span { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 500; }
+    .img-wrap img { width: 100%; border-radius: 0.5rem; border: 1px solid var(--border); }
+
+    /* DESCARGAS */
+    .download-row { display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
+    .btn-outline {
+      padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.8125rem; font-weight: 600;
+      border: 1.5px solid var(--border); color: var(--text); background: none;
+    }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* AI REPORT */
+    .ai-text { font-size: 0.875rem; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
+
+    /* GPS MAP LINK */
+    .gps-link { font-size: 0.8125rem; color: var(--primary); text-decoration: underline; margin-top: 0.5rem; display: inline-block; }
+
+    /* EMPTY STATE */
+    .empty-meta { color: var(--muted); font-size: 0.875rem; text-align: center; padding: 1.5rem 0; }
+
+    /* DETECTIONS */
+    .detection-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .detection-chip {
+      padding: 0.3rem 0.75rem; background: color-mix(in oklab, var(--primary) 10%, var(--bg));
+      color: var(--primary); border-radius: 999px; font-size: 0.8125rem; font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+      <line x1="12" y1="10" x2="12" y2="10.01"/>
+    </svg>
+    SafeSnap
+  </div>
+  <button class="theme-btn" data-theme-toggle aria-label="Cambiar tema">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</nav>
+
+<section class="hero">
+  <h1>Tu foto sabe <em>demasiado</em> sobre ti</h1>
+  <p>SafeSnap analiza los metadatos ocultos y el contenido visual de tus imágenes para mostrarte exactamente qué estás exponiendo antes de compartirlas.</p>
+</section>
+
+<section class="upload-section">
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" />
+    <div class="drop-icon">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+    </div>
+    <p class="drop-title" id="dropTitle">Arrastra una foto o haz clic para seleccionar</p>
+    <p class="drop-sub">JPEG, PNG o WEBP · máx. 15 MB</p>
+  </div>
+
+  <div class="options">
+    <label class="toggle-label">
+      <input type="checkbox" id="chkPersons" checked />
+      Desenfocar personas
+    </label>
+    <label class="toggle-label">
+      <input type="checkbox" id="chkVehicles" checked />
+      Desenfocar vehículos
+    </label>
+    <label class="toggle-label">
+      <input type="checkbox" id="chkAI" checked />
+      Informe IA (Llama 4 Vision)
+    </label>
+  </div>
+
+  <button class="btn-primary" id="analyzeBtn" disabled>Analizar imagen</button>
+</section>
+
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <p id="loaderText">Analizando metadatos…</p>
+</div>
+
+<section class="results" id="results">
+
+  <!-- PUNTUACIÓN GLOBAL -->
+  <div class="risk-banner" id="riskBanner">
+    <div class="risk-gauge" id="riskGauge">
+      <svg width="80" height="80" viewBox="0 0 80 80">
+        <circle cx="40" cy="40" r="32" fill="none" stroke="var(--border)" stroke-width="7"/>
+        <circle id="riskArc" cx="40" cy="40" r="32" fill="none" stroke="#22c55e"
+                stroke-width="7" stroke-linecap="round"
+                stroke-dasharray="201" stroke-dashoffset="201"/>
+      </svg>
+      <div class="score-text" id="scoreText">0</div>
+    </div>
+    <div class="risk-info">
+      <h2 id="riskLevel">Calculando…</h2>
+      <p id="riskExplanation"></p>
+    </div>
+  </div>
+
+  <div class="result-grid">
+
+    <!-- IMÁGENES -->
+    <div class="card card-full">
+      <h3>Imágenes</h3>
+      <div class="img-compare">
+        <div class="img-wrap">
+          <span>Original</span>
+          <img id="imgOriginal" src="" alt="Imagen original" loading="lazy" />
+        </div>
+        <div class="img-wrap">
+          <span>Con desenfoque aplicado</span>
+          <img id="imgBlurred" src="" alt="Imagen con desenfoque" loading="lazy" />
+        </div>
+      </div>
+      <div class="download-row">
+        <button class="btn-outline" id="btnDownloadClean">⬇ Descargar sin metadatos</button>
+        <button class="btn-outline" id="btnDownloadBlurred">⬇ Descargar con desenfoque</button>
+      </div>
+    </div>
+
+    <!-- METADATOS -->
+    <div class="card">
+      <h3>Metadatos detectados</h3>
+      <div id="metaContent"></div>
+    </div>
+
+    <!-- DETECCIONES VISUALES -->
+    <div class="card">
+      <h3>Análisis visual (YOLOv8)</h3>
+      <div id="visionContent"></div>
+    </div>
+
+    <!-- INFORME IA -->
+    <div class="card card-full">
+      <h3>Informe de privacidad — Llama 4 Vision</h3>
+      <div class="ai-text" id="aiReport">—</div>
+    </div>
+
+  </div>
+</section>
+
+<script>
+  // ── TEMA ──────────────────────────────────────────────────────────────────
+  (function(){
+    const btn = document.querySelector('[data-theme-toggle]');
+    const root = document.documentElement;
+    let dark = matchMedia('(prefers-color-scheme:dark)').matches;
+    root.setAttribute('data-theme', dark ? 'dark' : 'light');
+    btn.addEventListener('click', () => {
+      dark = !dark;
+      root.setAttribute('data-theme', dark ? 'dark' : 'light');
+      btn.innerHTML = dark
+        ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
+        : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    });
+  })();
+
+  // ── UPLOAD ────────────────────────────────────────────────────────────────
+  const fileInput   = document.getElementById('fileInput');
+  const dropZone    = document.getElementById('dropZone');
+  const dropTitle   = document.getElementById('dropTitle');
+  const analyzeBtn  = document.getElementById('analyzeBtn');
+  let selectedFile  = null;
+
+  function setFile(f) {
+    if (!f || !f.type.startsWith('image/')) return;
+    selectedFile = f;
+    dropTitle.textContent = f.name;
+    analyzeBtn.disabled = false;
+  }
+
+  fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); setFile(e.dataTransfer.files[0]); });
+
+  // ── ANÁLISIS ──────────────────────────────────────────────────────────────
+  const loader      = document.getElementById('loader');
+  const loaderText  = document.getElementById('loaderText');
+  const resultsEl   = document.getElementById('results');
+
+  const loaderSteps = [
+    'Extrayendo metadatos…',
+    'Analizando con YOLOv8…',
+    'Generando informe de privacidad…',
+  ];
+  let loaderInterval;
+
+  analyzeBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    analyzeBtn.disabled = true;
+    resultsEl.classList.remove('active');
+    loader.classList.add('active');
+
+    let step = 0;
+    loaderText.textContent = loaderSteps[0];
+    loaderInterval = setInterval(() => {
+      step = (step + 1) % loaderSteps.length;
+      loaderText.textContent = loaderSteps[step];
+    }, 2000);
+
+    const form = new FormData();
+    form.append('file', selectedFile);
+    form.append('blur_persons',  document.getElementById('chkPersons').checked);
+    form.append('blur_vehicles', document.getElementById('chkVehicles').checked);
+    form.append('generate_ai',   document.getElementById('chkAI').checked);
+
+    try {
+      const res  = await fetch('/analyze', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Error en el servidor');
+      renderResults(data, selectedFile);
+    } catch (err) {
+      alert('Error al analizar la imagen: ' + err.message);
+    } finally {
+      clearInterval(loaderInterval);
+      loader.classList.remove('active');
+      analyzeBtn.disabled = false;
+    }
+  });
+
+  // ── RENDER ────────────────────────────────────────────────────────────────
+  let _cleanB64 = '', _blurredB64 = '';
+
+  function renderResults(data, originalFile) {
+    // Puntuación de riesgo
+    const risk = data.risk;
+    const arc  = document.getElementById('riskArc');
+    const circ = 2 * Math.PI * 32;
+    const offset = circ - (risk.score / 100) * circ;
+    arc.setAttribute('stroke-dashoffset', offset.toFixed(1));
+    arc.setAttribute('stroke', risk.color);
+    document.getElementById('scoreText').textContent     = risk.score;
+    document.getElementById('riskLevel').textContent     = `Riesgo ${risk.level}`;
+    document.getElementById('riskExplanation').textContent = risk.explanation;
+
+    // Imágenes
+    const imgOrig    = document.getElementById('imgOriginal');
+    const imgBlurred = document.getElementById('imgBlurred');
+    imgOrig.src    = URL.createObjectURL(originalFile);
+    imgBlurred.src = data.vision.blurred_image;
+    _cleanB64      = data.clean_image;
+    _blurredB64    = data.vision.blurred_image;
+
+    // Descargas
+    document.getElementById('btnDownloadClean').onclick = () => downloadB64(_cleanB64, 'safesnap_clean.jpg');
+    document.getElementById('btnDownloadBlurred').onclick = () => downloadB64(_blurredB64, 'safesnap_blurred.jpg');
+
+    // Metadatos
+    const metaEl = document.getElementById('metaContent');
+    const fields = data.metadata.fields;
+    if (!fields.length) {
+      metaEl.innerHTML = '<p class="empty-meta">No se encontraron metadatos en esta imagen.</p>';
+    } else {
+      let rows = fields.slice(0, 20).map(f =>
+        `<tr>
+          <td>${escHtml(f.name)}<br><span class="badge badge-${f.risk}">${f.risk}</span></td>
+          <td>${escHtml(f.value.slice(0, 60))}</td>
+        </tr>`).join('');
+      metaEl.innerHTML = `
+        <table class="meta-table">
+          <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${data.metadata.gps ? `<a class="gps-link" href="https://maps.google.com/?q=${data.metadata.gps.lat},${data.metadata.gps.lon}" target="_blank" rel="noopener">📍 Ver ubicación en Google Maps</a>` : ''}
+      `;
+    }
+
+    // Detecciones visuales
+    const visionEl    = document.getElementById('visionContent');
+    const detections  = data.vision.detections;
+    if (!detections.length) {
+      visionEl.innerHTML = '<p class="empty-meta">No se detectaron elementos sensibles en la imagen.</p>';
+    } else {
+      const chips = detections.map(d =>
+        `<div class="detection-chip">${escHtml(d.label)} <small>${(d.confidence * 100).toFixed(0)}%</small></div>`
+      ).join('');
+      visionEl.innerHTML = `
+        <p style="font-size:0.875rem;color:var(--muted);margin-bottom:0.75rem">${escHtml(data.vision.summary)}</p>
+        <div class="detection-list">${chips}</div>
+      `;
+    }
+
+    // Informe IA
+    document.getElementById('aiReport').textContent = data.ai_report.report;
+
+    resultsEl.classList.add('active');
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function downloadB64(dataUrl, filename) {
+    const a = document.createElement('a');
+    a.href = dataUrl; a.download = filename; a.click();
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
