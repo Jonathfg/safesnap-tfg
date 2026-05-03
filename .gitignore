@@ -10,8 +10,6 @@ __pycache__/
 *.pyd
 .Python
 
-# Modelos YOLOv8 descargados
-*.pt
 
 # Logs
 *.log
