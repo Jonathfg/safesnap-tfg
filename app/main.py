@@ -3,6 +3,7 @@ SafeSnap — Backend principal con FastAPI.
 Expone los endpoints de análisis y sirve el frontend estático.
 """
 
+import gc
 import io
 import base64
 from contextlib import asynccontextmanager
@@ -86,13 +87,29 @@ async def analyze(
     blurred_b64 = base64.b64encode(vision_result["blurred_image_bytes"]).decode("utf-8")
 
     # ── CAPA 3: INFORME IA (GROQ / LLAMA 4 VISION) ─────────────────────────
+    # Reducir imagen para Groq a max 800px para ahorrar RAM en base64
     ai_result = {"report": "Análisis IA desactivado.", "model_used": "-", "error": None}
     if generate_ai:
+        from PIL import Image as _PIL
+        _img_ai = _PIL.open(io.BytesIO(image_bytes))
+        if max(_img_ai.width, _img_ai.height) > 800:
+            _img_ai.thumbnail((800, 800), _PIL.LANCZOS)
+            _buf = io.BytesIO()
+            _img_ai.save(_buf, format="JPEG", quality=85)
+            ai_image_bytes = _buf.getvalue()
+            del _buf
+        else:
+            ai_image_bytes = image_bytes
+        del _img_ai
+        gc.collect()
+
         ai_result = generate_report(
-            image_bytes=image_bytes,
+            image_bytes=ai_image_bytes,
             metadata_fields=meta_result["fields"],
             detection_summary=vision_result["summary"],
         )
+        del ai_image_bytes
+        gc.collect()
 
     # ── PUNTUACIÓN GLOBAL ───────────────────────────────────────────────────
     risk = calculate_global_risk(

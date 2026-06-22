@@ -4,6 +4,7 @@ Detecta elementos sensibles (personas/caras, matrículas, documentos)
 y aplica desenfoque selectivo sobre las regiones detectadas (ROI).
 """
 
+import gc
 import io
 import cv2
 import numpy as np
@@ -86,6 +87,12 @@ def analyze_image(
           - summary: resumen legible de lo encontrado
     """
     img = Image.open(io.BytesIO(image_bytes))
+
+    # Escalar a máximo 1280px para reducir uso de RAM (YOLO trabaja a 640px internamente)
+    MAX_DIM = 1280
+    if max(img.width, img.height) > MAX_DIM:
+        img.thumbnail((MAX_DIM, MAX_DIM), Image.LANCZOS)
+
     cv_img = _pil_to_cv2(img)
     model = _get_model()
 
@@ -135,9 +142,15 @@ def analyze_image(
         parts.append(f"{n_vehicles} vehículo{'s' if n_vehicles > 1 else ''}")
     summary = f"Detectado: {', '.join(parts)}." if parts else "No se detectaron elementos sensibles."
 
-    return {
+    result = {
         "detections":           detections,
         "blurred_image_bytes":  out_buf.getvalue(),
         "risk_score":           min(accumulated_score, 50),
         "summary":              summary,
     }
+
+    # Liberar memoria explícitamente antes de devolver
+    del cv_img, results
+    gc.collect()
+
+    return result
