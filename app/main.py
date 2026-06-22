@@ -3,6 +3,7 @@ SafeSnap — Backend principal con FastAPI.
 Expone los endpoints de análisis y sirve el frontend estático.
 """
 
+import asyncio
 import gc
 import io
 import base64
@@ -79,7 +80,10 @@ async def analyze(
     clean_mime  = _MIME.get(meta_result["format"].upper(), "image/jpeg")
 
     # ── CAPA 2: DETECCIÓN VISUAL (YOLOv8) ──────────────────────────────────
-    vision_result = analyze_image(
+    # Se ejecuta en un thread aparte: la inferencia bloquea la CPU varios
+    # segundos/minutos en el free tier, y no debe congelar el event loop.
+    vision_result = await asyncio.to_thread(
+        analyze_image,
         image_bytes,
         blur_persons=blur_persons,
         blur_vehicles=blur_vehicles,
@@ -103,7 +107,8 @@ async def analyze(
         del _img_ai
         gc.collect()
 
-        ai_result = generate_report(
+        ai_result = await asyncio.to_thread(
+            generate_report,
             image_bytes=ai_image_bytes,
             metadata_fields=meta_result["fields"],
             detection_summary=vision_result["summary"],
