@@ -5,20 +5,30 @@ Expone los endpoints de análisis y sirve el frontend estático.
 
 import io
 import base64
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.metadata   import extract_metadata, strip_metadata
-from app.modules.vision     import analyze_image
+from app.modules.vision     import analyze_image, _get_model
 from app.modules.ai_report  import generate_report
 from app.modules.risk_score import calculate_global_risk
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-cargar el modelo YOLO al arrancar para evitar timeout en la primera petición
+    _get_model()
+    yield
+
 
 app = FastAPI(
     title="SafeSnap API",
     description="Análisis de privacidad fotográfica de doble capa.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 _MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}

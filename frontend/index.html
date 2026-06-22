@@ -364,8 +364,11 @@
 
     try {
       const res  = await fetch('/analyze', { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Error en el servidor');
+      const text = await res.text();
+      if (!text) throw new Error(`El servidor no respondió (${res.status}). Si es la primera petición, el servicio puede estar iniciándose — espera unos segundos y vuelve a intentarlo.`);
+      let data;
+      try { data = JSON.parse(text); } catch { throw new Error('Respuesta del servidor inválida. Inténtalo de nuevo.'); }
+      if (!res.ok) throw new Error(data.detail || `Error en el servidor (${res.status})`);
       renderResults(data, selectedFile);
     } catch (err) {
       alert('Error al analizar la imagen: ' + err.message);
