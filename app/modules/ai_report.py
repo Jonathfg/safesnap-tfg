@@ -85,7 +85,7 @@ def generate_report(
     try:
         client = _get_client()
         response = client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model="qwen/qwen3.6-27b",
             messages=[
                 {
                     "role": "user",
@@ -109,12 +109,12 @@ def generate_report(
         report_text = response.choices[0].message.content or "No se pudo generar el informe."
         return {
             "report":     report_text,
-            "model_used": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "model_used": "qwen/qwen3.6-27b",
             "error":      None,
         }
     except Exception as e:
         return {
             "report":     "El análisis con IA no está disponible en este momento.",
-            "model_used": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "model_used": "qwen/qwen3.6-27b",
             "error":      str(e),
         }
