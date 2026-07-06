@@ -60,7 +60,7 @@ async def analyze(
     - Metadatos extraídos y clasificados por riesgo
     - Imagen con desenfoque aplicado (base64)
     - Imagen limpia sin metadatos (base64)
-    - Informe de privacidad generado por Llama 4 Vision
+    - Informe de privacidad generado por el modelo de visión (Groq)
     - Puntuación de riesgo global (0–100)
     """
     # Validar que sea una imagen
@@ -90,7 +90,7 @@ async def analyze(
     )
     blurred_b64 = base64.b64encode(vision_result["blurred_image_bytes"]).decode("utf-8")
 
-    # ── CAPA 3: INFORME IA (GROQ / LLAMA 4 VISION) ─────────────────────────
+    # ── CAPA 3: INFORME IA (MODELO DE VISIÓN VÍA GROQ) ─────────────────────
     # Reducir imagen para Groq a max 800px para ahorrar RAM en base64
     ai_result = {"report": "Análisis IA desactivado.", "model_used": "-", "error": None}
     if generate_ai:

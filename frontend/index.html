@@ -223,7 +223,7 @@
     </label>
     <label class="toggle-label">
       <input type="checkbox" id="chkAI" checked />
-      Informe IA (Llama 4 Vision)
+      Informe IA
     </label>
   </div>
 
@@ -289,7 +289,7 @@
 
     <!-- INFORME IA -->
     <div class="card card-full">
-      <h3>Informe de privacidad — Llama 4 Vision</h3>
+      <h3>Informe de privacidad</h3>
       <div class="ai-text" id="aiReport">—</div>
     </div>
 
@@ -441,8 +441,8 @@
       `;
     }
 
-    // Informe IA
-    document.getElementById('aiReport').textContent = data.ai_report.report;
+    // Informe IA (se renderiza el markdown básico: **negrita**)
+    document.getElementById('aiReport').innerHTML = renderReport(data.ai_report.report);
 
     resultsEl.classList.add('active');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -457,6 +457,14 @@
     return String(str)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
       .replace(/"/g,'&quot;');
+  }
+
+  // Renderiza el informe de la IA: escapa el HTML (seguridad) y luego
+  // convierte el markdown básico **negrita** en <strong>. Los saltos de
+  // línea se conservan vía CSS (.ai-text { white-space: pre-wrap }).
+  function renderReport(str) {
+    return escHtml(String(str).trim())
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   }
 </script>
 </body>

@@ -1,17 +1,46 @@
 """
-Módulo de análisis multimodal con Llama 4 Vision vía API de Groq.
+Módulo de análisis multimodal con un modelo de visión vía API de Groq.
 Genera un informe de privacidad en lenguaje natural a partir de
 la imagen y los metadatos extraídos.
 """
 
 import base64
 import os
+import re
 from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
 
 _client: Groq | None = None
+
+# Modelo de razonamiento de Groq utilizado para el análisis.
+MODEL = "qwen/qwen3.6-27b"
+
+# Los modelos de razonamiento (Qwen3, DeepSeek-R1, …) anteponen su
+# cadena de pensamiento entre etiquetas <think>…</think>. Ese bloque es
+# ruido interno que NO debe mostrarse al usuario en el informe final.
+_THINK_RE = re.compile(r"<think\b[^>]*>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_reasoning(text: str) -> str:
+    """
+    Elimina el razonamiento interno del modelo (<think>…</think>) y deja
+    únicamente el informe final. Robusto ante respuestas truncadas en las
+    que la etiqueta de cierre </think> no llegó a generarse.
+    """
+    if not text:
+        return ""
+    # 1) Quitar los bloques completos <think>…</think>.
+    cleaned = _THINK_RE.sub("", text)
+    # 2) Si quedó un <think> abierto sin cerrar (respuesta cortada por
+    #    max_tokens), descartar todo lo que va a partir de esa etiqueta.
+    low = cleaned.lower()
+    if "<think>" in low:
+        cleaned = cleaned[: low.index("<think>")]
+    # 3) Limpiar cualquier etiqueta residual suelta.
+    cleaned = re.sub(r"</?think\b[^>]*>", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
 
 
 def _get_client() -> Groq:
@@ -50,7 +79,7 @@ def generate_report(
     detection_summary: str,
 ) -> dict:
     """
-    Genera un informe de privacidad en lenguaje natural usando Llama 4 Vision.
+    Genera un informe de privacidad en lenguaje natural con el modelo de visión.
 
     Args:
         image_bytes: Imagen a analizar (JPEG o PNG).
@@ -85,7 +114,7 @@ def generate_report(
     try:
         client = _get_client()
         response = client.chat.completions.create(
-            model="qwen/qwen3.6-27b",
+            model=MODEL,
             messages=[
                 {
                     "role": "user",
@@ -103,18 +132,24 @@ def generate_report(
                     ],
                 }
             ],
-            max_tokens=800,
+            # Presupuesto amplio: el modelo razona antes de responder y ese
+            # razonamiento consume tokens; con un límite bajo el informe final
+            # se cortaba a media frase. Descartamos el razonamiento después.
+            max_tokens=2500,
             temperature=0.3,
         )
-        report_text = response.choices[0].message.content or "No se pudo generar el informe."
+        raw = response.choices[0].message.content or ""
+        report_text = _strip_reasoning(raw)
+        if not report_text:
+            report_text = "No se pudo generar el informe (respuesta vacía del modelo)."
         return {
             "report":     report_text,
-            "model_used": "qwen/qwen3.6-27b",
+            "model_used": MODEL,
             "error":      None,
         }
     except Exception as e:
         return {
             "report":     "El análisis con IA no está disponible en este momento.",
-            "model_used": "qwen/qwen3.6-27b",
+            "model_used": MODEL,
             "error":      str(e),
         }

@@ -68,7 +68,8 @@ def analyze_image(
     image_bytes: bytes,
     blur_persons: bool = True,
     blur_vehicles: bool = True,
-    confidence_threshold: float = 0.40,
+    confidence_threshold: float = 0.25,
+    imgsz: int = 960,
 ) -> dict:
     """
     Detecta elementos sensibles en la imagen y aplica desenfoque selectivo.
@@ -78,6 +79,13 @@ def analyze_image(
         blur_persons: Si True, desenfoca personas detectadas.
         blur_vehicles: Si True, desenfoca vehículos detectados.
         confidence_threshold: Umbral de confianza mínimo para aceptar detección.
+            Se usa 0.25 (recall alto) porque en una herramienta de privacidad
+            es preferible desenfocar de más que dejar una cara sin proteger,
+            y en fotos de grupo mucha gente queda entre 0.25 y 0.40.
+        imgsz: Resolución de inferencia de YOLO. Por defecto 960 en lugar de
+            los 640 nativos para detectar personas pequeñas/lejanas en fotos
+            de grupo. Nota: subirlo aumenta el uso de RAM; si el free tier de
+            Render vuelve a dar OOM, baja este valor a 640.
 
     Returns:
         dict con:
@@ -96,7 +104,9 @@ def analyze_image(
     cv_img = _pil_to_cv2(img)
     model = _get_model()
 
-    results = model(cv_img, verbose=False)[0]
+    # imgsz mayor = más recall en personas pequeñas/lejanas (fotos de grupo);
+    # conf bajo aquí y volvemos a filtrar por confidence_threshold más abajo.
+    results = model(cv_img, imgsz=imgsz, conf=confidence_threshold, verbose=False)[0]
 
     detections = []
     accumulated_score = 0

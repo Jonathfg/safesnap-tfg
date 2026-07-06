@@ -28,3 +28,6 @@ temp/
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+# Artefactos de prueba
+safesnap_test_response*.json
