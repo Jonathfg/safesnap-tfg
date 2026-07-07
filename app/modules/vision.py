@@ -6,10 +6,30 @@ y aplica desenfoque selectivo sobre las regiones detectadas (ROI).
 
 import gc
 import io
+import ctypes
 import cv2
 import numpy as np
 from PIL import Image
 from ultralytics import YOLO
+import torch
+
+# Menos hilos de torch = menos memoria (Render 512 MB) y basta con la CPU
+# disponible en el plan; evita picos de RAM que provocaban OOM.
+torch.set_num_threads(1)
+
+
+def _release_memory() -> None:
+    """
+    Libera memoria y la devuelve al sistema operativo. numpy/cv2/torch dejan
+    el RSS del proceso alto tras el análisis; en un contenedor de 512 MB eso
+    se acumula y acaba en OOM. malloc_trim fuerza a glibc a devolver el heap
+    liberado (no-op fuera de Linux, p. ej. en desarrollo local Windows).
+    """
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 # Clases COCO que se consideran sensibles para la privacidad
 # 0=person  (detecta cuerpo completo; en la práctica captura caras)
@@ -69,7 +89,7 @@ def analyze_image(
     blur_persons: bool = True,
     blur_vehicles: bool = True,
     confidence_threshold: float = 0.25,
-    imgsz: int = 960,
+    imgsz: int = 640,
 ) -> dict:
     """
     Detecta elementos sensibles en la imagen y aplica desenfoque selectivo.
@@ -82,10 +102,10 @@ def analyze_image(
             Se usa 0.25 (recall alto) porque en una herramienta de privacidad
             es preferible desenfocar de más que dejar una cara sin proteger,
             y en fotos de grupo mucha gente queda entre 0.25 y 0.40.
-        imgsz: Resolución de inferencia de YOLO. Por defecto 960 en lugar de
-            los 640 nativos para detectar personas pequeñas/lejanas en fotos
-            de grupo. Nota: subirlo aumenta el uso de RAM; si el free tier de
-            Render vuelve a dar OOM, baja este valor a 640.
+        imgsz: Resolución de inferencia de YOLO. Se usa 640 (nativo) para no
+            exceder los 512 MB del plan de Render. Subirlo (p. ej. 960) mejora
+            la detección de personas pequeñas/lejanas pero dispara la RAM y
+            provoca OOM en 512 MB — solo recomendable con 2 GB (plan Standard).
 
     Returns:
         dict con:
@@ -162,8 +182,8 @@ def analyze_image(
         "blurred_count":        blurred_count,
     }
 
-    # Liberar memoria explícitamente antes de devolver
+    # Liberar memoria explícitamente antes de devolver (y devolverla al SO)
     del cv_img, results
-    gc.collect()
+    _release_memory()
 
     return result
