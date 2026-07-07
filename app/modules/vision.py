@@ -110,6 +110,7 @@ def analyze_image(
 
     detections = []
     accumulated_score = 0
+    blurred_count = 0
 
     for box in results.boxes:
         cls_id = int(box.cls[0])
@@ -136,6 +137,7 @@ def analyze_image(
 
         if (is_person and blur_persons) or (is_vehicle and blur_vehicles):
             cv_img = _apply_blur(cv_img, x1, y1, x2, y2, strength=51)
+            blurred_count += 1
 
     # Convertir imagen procesada de vuelta a bytes JPEG
     out_pil = _cv2_to_pil(cv_img)
@@ -157,6 +159,7 @@ def analyze_image(
         "blurred_image_bytes":  out_buf.getvalue(),
         "risk_score":           min(accumulated_score, 50),
         "summary":              summary,
+        "blurred_count":        blurred_count,
     }
 
     # Liberar memoria explícitamente antes de devolver

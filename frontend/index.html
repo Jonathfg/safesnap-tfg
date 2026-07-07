@@ -259,16 +259,19 @@
     <!-- IMÁGENES -->
     <div class="card card-full">
       <h3>Imágenes</h3>
-      <div class="img-compare">
+      <div class="img-compare" id="imgCompare">
         <div class="img-wrap">
           <span>Original</span>
           <img id="imgOriginal" src="" alt="Imagen original" loading="lazy" />
         </div>
-        <div class="img-wrap">
+        <div class="img-wrap" id="blurredWrap">
           <span>Con desenfoque aplicado</span>
           <img id="imgBlurred" src="" alt="Imagen con desenfoque" loading="lazy" />
         </div>
       </div>
+      <p class="empty-meta" id="blurNote" style="display:none">
+        No se aplicó desenfoque: no se detectó nada que desenfocar o desactivaste las opciones de desenfoque.
+      </p>
       <div class="download-row">
         <button class="btn-outline" id="btnDownloadClean">⬇ Descargar sin metadatos</button>
         <button class="btn-outline" id="btnDownloadBlurred">⬇ Descargar con desenfoque</button>
@@ -401,6 +404,14 @@
     imgBlurred.src = data.vision.blurred_image;
     _cleanB64      = data.clean_image;
     _blurredB64    = data.vision.blurred_image;
+
+    // Si no se desenfocó nada, la imagen "con desenfoque" sería idéntica a la
+    // original: la ocultamos y mostramos una nota, en vez de duplicar la foto.
+    const blurApplied = data.vision.blur_applied;
+    document.getElementById('blurredWrap').style.display        = blurApplied ? '' : 'none';
+    document.getElementById('btnDownloadBlurred').style.display = blurApplied ? '' : 'none';
+    document.getElementById('blurNote').style.display           = blurApplied ? 'none' : 'block';
+    document.getElementById('imgCompare').style.gridTemplateColumns = blurApplied ? '' : '1fr';
 
     // Descargas
     document.getElementById('btnDownloadClean').onclick = () => downloadB64(_cleanB64, 'safesnap_clean.jpg');

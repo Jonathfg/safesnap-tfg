@@ -8,7 +8,7 @@ import gc
 import io
 import base64
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +41,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def no_cache_html(request: Request, call_next):
+    """
+    Impide que el navegador cachee el HTML. Sin esto, un cambio en el frontend
+    (p. ej. el renderizado del informe o las etiquetas) no se ve hasta forzar
+    recarga, porque el navegador reutiliza el index.html guardado.
+    """
+    response = await call_next(request)
+    if response.headers.get("content-type", "").startswith("text/html"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 
 @app.get("/health")
@@ -135,6 +148,7 @@ async def analyze(
             "summary":      vision_result["summary"],
             "risk_score":   vision_result["risk_score"],
             "blurred_image": f"data:image/jpeg;base64,{blurred_b64}",
+            "blur_applied": vision_result["blurred_count"] > 0,
         },
         "ai_report": {
             "report":     ai_result["report"],
