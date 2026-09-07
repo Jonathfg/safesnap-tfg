@@ -31,3 +31,12 @@ Thumbs.db
 
 # Artefactos de prueba
 safesnap_test_response*.json
+
+# Documentos de trabajo (no publicar)
+*.docx
+*.pptx
+*.md
+!README.md
+
+# Entorno de pruebas local
+venv/
