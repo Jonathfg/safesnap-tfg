@@ -1,7 +1,14 @@
 """
 Módulo de análisis visual con YOLOv8.
-Detecta elementos sensibles (personas/caras, matrículas, documentos)
-y aplica desenfoque selectivo sobre las regiones detectadas (ROI).
+Detecta las clases sensibles que ofrece el modelo preentrenado sobre COCO
+—personas y vehículos— y aplica desenfoque selectivo sobre las regiones
+detectadas (ROI).
+
+Cobertura y límites del enfoque: la clase person cubre en la práctica la
+protección de caras, porque la caja de una persona en primer plano incluye
+la cabeza. Las matrículas se cubren de forma indirecta, desenfocando la
+región completa del vehículo. Los documentos quedan fuera del alcance:
+COCO no tiene una clase para ellos.
 """
 
 import gc
@@ -9,7 +16,7 @@ import io
 import ctypes
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from ultralytics import YOLO
 import torch
 
@@ -88,7 +95,7 @@ def analyze_image(
     image_bytes: bytes,
     blur_persons: bool = True,
     blur_vehicles: bool = True,
-    confidence_threshold: float = 0.25,
+    confidence_threshold: float = 0.40,
     imgsz: int = 640,
 ) -> dict:
     """
@@ -99,9 +106,10 @@ def analyze_image(
         blur_persons: Si True, desenfoca personas detectadas.
         blur_vehicles: Si True, desenfoca vehículos detectados.
         confidence_threshold: Umbral de confianza mínimo para aceptar detección.
-            Se usa 0.25 (recall alto) porque en una herramienta de privacidad
-            es preferible desenfocar de más que dejar una cara sin proteger,
-            y en fotos de grupo mucha gente queda entre 0.25 y 0.40.
+            Se usa 0.40, valor ajustado por prueba y error sobre el conjunto de
+            validación: por encima el modelo dejaba pasar personas en planos
+            medios o con mala iluminación, y por debajo aparecían demasiados
+            falsos positivos.
         imgsz: Resolución de inferencia de YOLO. Se usa 640 (nativo) para no
             exceder los 512 MB del plan de Render. Subirlo (p. ej. 960) mejora
             la detección de personas pequeñas/lejanas pero dispara la RAM y
@@ -113,8 +121,17 @@ def analyze_image(
           - blurred_image_bytes: imagen con desenfoque aplicado (JPEG)
           - risk_score: puntuación de riesgo visual (0–50)
           - summary: resumen legible de lo encontrado
+          - detection_size: {w, h} de la imagen sobre la que se detectó, para
+            que el frontend pueda escalar las cajas al tamaño con que muestra
+            la imagen original
     """
     img = Image.open(io.BytesIO(image_bytes))
+
+    # Aplicar la rotación que indica el campo Orientation del EXIF. Las fotos
+    # de móvil en vertical se guardan giradas con una marca que dice cómo hay
+    # que mostrarlas; sin esto la inferencia trabajaría sobre la imagen tumbada
+    # y las cajas que devolvemos no cuadrarían con la foto que ve el usuario.
+    img = ImageOps.exif_transpose(img)
 
     # Escalar a máximo 1280px para reducir uso de RAM (YOLO trabaja a 640px internamente)
     MAX_DIM = 1280
@@ -124,8 +141,9 @@ def analyze_image(
     cv_img = _pil_to_cv2(img)
     model = _get_model()
 
-    # imgsz mayor = más recall en personas pequeñas/lejanas (fotos de grupo);
-    # conf bajo aquí y volvemos a filtrar por confidence_threshold más abajo.
+    # El umbral se aplica ya en la inferencia: YOLO no devuelve cajas por
+    # debajo de conf, así que una detección con menos confianza no llega
+    # siquiera a results.boxes.
     results = model(cv_img, imgsz=imgsz, conf=confidence_threshold, verbose=False)[0]
 
     detections = []
@@ -180,6 +198,10 @@ def analyze_image(
         "risk_score":           min(accumulated_score, 50),
         "summary":              summary,
         "blurred_count":        blurred_count,
+        # Las coordenadas de las cajas están en el espacio de la imagen ya
+        # reescalada, no en el de la original que el usuario subió. Sin este
+        # dato el frontend no podría dibujarlas encima de la foto original.
+        "detection_size":       {"w": out_pil.width, "h": out_pil.height},
     }
 
     # Liberar memoria explícitamente antes de devolver (y devolverla al SO)

@@ -133,8 +133,16 @@
     .meta-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
     .meta-table th { text-align: left; color: var(--faint); font-weight: 500; padding: 0 0 0.5rem; border-bottom: 1px solid var(--border); }
     .meta-table td { padding: 0.5rem 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent); vertical-align: top; }
-    .meta-table td:first-child { font-weight: 500; width: 38%; padding-right: 0.75rem; }
+    .meta-table td:first-child { font-weight: 500; width: 30%; padding-right: 0.75rem; }
     .meta-table td:last-child { color: var(--muted); }
+    .meta-value { width: 32%; padding-right: 0.75rem; word-break: break-word; }
+    .meta-desc { font-size: 0.78rem; color: var(--muted); }
+    .std-tag {
+      display: inline-block; margin-left: 0.35rem; padding: 0.05rem 0.35rem;
+      border: 1px solid var(--border); border-radius: 0.25rem;
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; color: var(--faint);
+    }
+    .meta-count { font-size: 0.78rem; color: var(--muted); margin-top: 0.6rem; }
 
     /* RISK BADGES */
     .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -150,7 +158,32 @@
     @media (max-width: 500px) { .img-compare { grid-template-columns: 1fr; } }
     .img-wrap { text-align: center; }
     .img-wrap span { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 500; }
-    .img-wrap img { width: 100%; border-radius: 0.5rem; border: 1px solid var(--border); }
+    .img-wrap img { width: 100%; border-radius: 0.5rem; border: 1px solid var(--border); display: block; }
+
+    /* CAPA DE DETECCIONES: el canvas se superpone a la imagen original para
+       dibujar las cajas de YOLOv8 antes de que el usuario confirme el blur. */
+    /* El borde va en el contenedor y no en la imagen: si lo llevara la
+       imagen, su contenido empezaría un píxel más adentro que el canvas y
+       las cajas se dibujarían desplazadas respecto a lo detectado. */
+    .canvas-wrap {
+      position: relative; line-height: 0; overflow: hidden;
+      border: 1px solid var(--border); border-radius: 0.5rem;
+    }
+    .canvas-wrap img { border: none; border-radius: 0; }
+    .canvas-wrap canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+    /* CONFIRMACIÓN DEL DESENFOQUE */
+    .confirm-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      flex-wrap: wrap; margin-top: 1rem; padding: 0.875rem 1rem;
+      background: color-mix(in oklab, var(--primary) 7%, var(--surface));
+      border: 1px solid color-mix(in oklab, var(--primary) 25%, var(--border));
+      border-radius: var(--radius);
+    }
+    .confirm-text { font-size: 0.8125rem; color: var(--text); margin: 0; }
+    .btn-inline { width: auto; margin: 0; padding: 0.55rem 1.1rem; font-size: 0.8125rem; }
+    .legend { display: flex; gap: 1rem; justify-content: center; margin-top: 0.5rem; font-size: 0.72rem; color: var(--muted); }
+    .legend i { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 0.15rem; margin-right: 0.3rem; vertical-align: -1px; }
 
     /* DESCARGAS */
     .download-row { display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
@@ -162,6 +195,12 @@
 
     /* AI REPORT */
     .ai-text { font-size: 0.875rem; line-height: 1.75; color: var(--text); white-space: pre-wrap; }
+    .ai-error {
+      margin-top: 0.75rem; padding: 0.6rem 0.8rem; border-radius: 0.5rem;
+      background: color-mix(in oklab, var(--danger) 10%, var(--surface));
+      border: 1px solid color-mix(in oklab, var(--danger) 30%, var(--border));
+      color: var(--danger); font-size: 0.78rem; white-space: normal;
+    }
 
     /* GPS MAP LINK */
     .gps-link { font-size: 0.8125rem; color: var(--primary); text-decoration: underline; margin-top: 0.5rem; display: inline-block; }
@@ -261,14 +300,30 @@
       <h3>Imágenes</h3>
       <div class="img-compare" id="imgCompare">
         <div class="img-wrap">
-          <span>Original</span>
-          <img id="imgOriginal" src="" alt="Imagen original" loading="lazy" />
+          <span id="origLabel">Original</span>
+          <div class="canvas-wrap">
+            <img id="imgOriginal" src="" alt="Imagen original" />
+            <canvas id="detCanvas"></canvas>
+          </div>
+          <div class="legend" id="detLegend" style="display:none">
+            <span><i style="background:#ef4444"></i>Persona</span>
+            <span><i style="background:#f97316"></i>Vehículo</span>
+          </div>
         </div>
         <div class="img-wrap" id="blurredWrap">
           <span>Con desenfoque aplicado</span>
           <img id="imgBlurred" src="" alt="Imagen con desenfoque" loading="lazy" />
         </div>
       </div>
+
+      <!-- RF10 / CU05: el usuario ve marcado lo que se ha detectado y decide
+           si aplicar el desenfoque. Hasta que confirma no se muestra la
+           versión desenfocada ni se ofrece su descarga. -->
+      <div class="confirm-row" id="confirmRow" style="display:none">
+        <p class="confirm-text" id="confirmText"></p>
+        <button class="btn-primary btn-inline" id="btnConfirmBlur">Aplicar desenfoque</button>
+      </div>
+
       <p class="empty-meta" id="blurNote" style="display:none">
         No se aplicó desenfoque: no se detectó nada que desenfocar o desactivaste las opciones de desenfoque.
       </p>
@@ -322,10 +377,22 @@
   const analyzeBtn  = document.getElementById('analyzeBtn');
   let selectedFile  = null;
 
+  // Formatos admitidos (RF01). La validación se repite en el servidor sobre
+  // los bytes del fichero; aquí es solo para avisar al usuario al instante.
+  const FORMATOS_OK = ['image/jpeg', 'image/png', 'image/webp'];
+
   function setFile(f) {
-    if (!f || !f.type.startsWith('image/')) return;
+    if (!f) return;
+    if (!FORMATOS_OK.includes(f.type)) {
+      selectedFile = null;
+      analyzeBtn.disabled = true;
+      dropTitle.textContent = `«${f.name}» no es un formato admitido — usa JPEG, PNG o WEBP`;
+      dropTitle.style.color = 'var(--danger)';
+      return;
+    }
     selectedFile = f;
     dropTitle.textContent = f.name;
+    dropTitle.style.color = '';
     analyzeBtn.disabled = false;
   }
 
@@ -383,7 +450,78 @@
   });
 
   // ── RENDER ────────────────────────────────────────────────────────────────
-  let _cleanB64 = '', _blurredB64 = '';
+  let _cleanB64 = '', _blurredB64 = '', _objectUrl = null, _redraw = null;
+
+  // Dibuja sobre la imagen original una caja por cada elemento detectado.
+  // Las coordenadas que devuelve el backend están en el espacio de la imagen
+  // reescalada para la inferencia, así que hay que reescalarlas al tamaño con
+  // el que el navegador está mostrando la foto.
+  function drawDetections(data) {
+    const img     = document.getElementById('imgOriginal');
+    const canvas  = document.getElementById('detCanvas');
+    const legend  = document.getElementById('detLegend');
+    const label   = document.getElementById('origLabel');
+    const dets    = data.vision.detections || [];
+    const size    = data.vision.detection_size;
+
+    legend.style.display = dets.length ? '' : 'none';
+    label.textContent = dets.length
+      ? `Original — ${dets.length} ${dets.length === 1 ? 'elemento detectado' : 'elementos detectados'}`
+      : 'Original';
+
+    const paint = () => {
+      const w = img.clientWidth, h = img.clientHeight;
+      if (!w || !h) return;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width  = Math.round(w * ratio);
+      canvas.height = Math.round(h * ratio);
+      canvas.style.width  = w + 'px';
+      canvas.style.height = h + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      if (!dets.length) return;
+
+      // Sin detection_size caeríamos en las dimensiones naturales, que solo
+      // coinciden si el backend no tuvo que reescalar la imagen.
+      const refW = (size && size.w) || img.naturalWidth  || w;
+      const refH = (size && size.h) || img.naturalHeight || h;
+      const sx = w / refW, sy = h / refH;
+
+      const fontSize = Math.max(10, Math.min(15, w / 34));
+      ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
+      ctx.lineWidth = Math.max(1.5, w / 320);
+      ctx.textBaseline = 'alphabetic';
+
+      dets.forEach(d => {
+        const color = d.label === 'persona' ? '#ef4444' : '#f97316';
+        const x  = d.bbox.x1 * sx, y = d.bbox.y1 * sy;
+        const bw = (d.bbox.x2 - d.bbox.x1) * sx;
+        const bh = (d.bbox.y2 - d.bbox.y1) * sy;
+
+        ctx.strokeStyle = color;
+        ctx.strokeRect(x, y, bw, bh);
+
+        const tag    = `${d.label} ${(d.confidence * 100).toFixed(0)}%`;
+        const padX   = 5;
+        const tagW   = ctx.measureText(tag).width + padX * 2;
+        const tagH   = fontSize + 7;
+        const tagY   = y - tagH < 0 ? y : y - tagH;   // no salirse por arriba
+        ctx.fillStyle = color;
+        ctx.fillRect(x, tagY, Math.min(tagW, bw > 24 ? tagW : tagW), tagH);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(tag, x + padX, tagY + tagH - 6);
+      });
+    };
+
+    if (_redraw) window.removeEventListener('resize', _redraw);
+    _redraw = paint;
+    window.addEventListener('resize', _redraw);
+
+    if (img.complete && img.naturalWidth) paint();
+    else img.onload = paint;
+  }
 
   function renderResults(data, originalFile) {
     // Puntuación de riesgo
@@ -400,22 +538,63 @@
     // Imágenes
     const imgOrig    = document.getElementById('imgOriginal');
     const imgBlurred = document.getElementById('imgBlurred');
-    imgOrig.src    = URL.createObjectURL(originalFile);
+    if (_objectUrl) URL.revokeObjectURL(_objectUrl);
+    _objectUrl     = URL.createObjectURL(originalFile);
+    imgOrig.src    = _objectUrl;
     imgBlurred.src = data.vision.blurred_image;
     _cleanB64      = data.clean_image;
     _blurredB64    = data.vision.blurred_image;
 
-    // Si no se desenfocó nada, la imagen "con desenfoque" sería idéntica a la
-    // original: la ocultamos y mostramos una nota, en vez de duplicar la foto.
-    const blurApplied = data.vision.blur_applied;
-    document.getElementById('blurredWrap').style.display        = blurApplied ? '' : 'none';
-    document.getElementById('btnDownloadBlurred').style.display = blurApplied ? '' : 'none';
-    document.getElementById('blurNote').style.display           = blurApplied ? 'none' : 'block';
-    document.getElementById('imgCompare').style.gridTemplateColumns = blurApplied ? '' : '1fr';
+    // Dibujar las cajas de las detecciones sobre la imagen original (RF10).
+    drawDetections(data);
 
-    // Descargas
-    document.getElementById('btnDownloadClean').onclick = () => downloadB64(_cleanB64, 'safesnap_clean.jpg');
-    document.getElementById('btnDownloadBlurred').onclick = () => downloadB64(_blurredB64, 'safesnap_blurred.jpg');
+    // El resultado desenfocado permanece oculto hasta que el usuario confirma.
+    // Si no había nada que desenfocar, se explica en vez de duplicar la foto.
+    const blurApplied  = data.vision.blur_applied;
+    const blurredCount = data.vision.blurred_count || 0;
+    const blurredWrap  = document.getElementById('blurredWrap');
+    const btnDlBlur    = document.getElementById('btnDownloadBlurred');
+    const confirmRow   = document.getElementById('confirmRow');
+    const imgCompare   = document.getElementById('imgCompare');
+
+    blurredWrap.style.display = 'none';
+    btnDlBlur.style.display   = 'none';
+    imgCompare.style.gridTemplateColumns = '1fr';
+
+    if (blurApplied) {
+      document.getElementById('blurNote').style.display = 'none';
+      confirmRow.style.display = '';
+      // Se distinguen los dos números: pueden diferir si el usuario desactivó
+      // el desenfoque de personas o de vehículos, en cuyo caso hay elementos
+      // marcados sobre la imagen que no se van a desenfocar.
+      const totalDet = (data.vision.detections || []).length;
+      const marcados = totalDet === blurredCount
+        ? `Se han marcado ${blurredCount} ${blurredCount === 1 ? 'elemento' : 'elementos'} sobre la imagen`
+        : `Se han detectado ${totalDet} elementos, de los que se desenfocarán ${blurredCount} según tus opciones`;
+      document.getElementById('confirmText').textContent =
+        `${marcados}. Revisa las marcas y confirma para ver y descargar la versión desenfocada.`;
+      document.getElementById('btnConfirmBlur').onclick = () => {
+        blurredWrap.style.display = '';
+        btnDlBlur.style.display   = '';
+        imgCompare.style.gridTemplateColumns = '';
+        confirmRow.style.display  = 'none';
+        // Al pasar a dos columnas la imagen original se encoge a la mitad, así
+        // que hay que repintar las cajas sobre el nuevo tamaño. Se espera un
+        // fotograma para que el navegador haya recalculado el layout.
+        requestAnimationFrame(() => { if (_redraw) _redraw(); });
+        blurredWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      };
+    } else {
+      confirmRow.style.display = 'none';
+      document.getElementById('blurNote').style.display = 'block';
+    }
+
+    // Descargas. La imagen limpia conserva el formato original, así que la
+    // extensión se deduce del propio data URI en lugar de asumir .jpg.
+    document.getElementById('btnDownloadClean').onclick =
+      () => downloadB64(_cleanB64, `safesnap_sin_metadatos.${extFromDataUrl(_cleanB64)}`);
+    document.getElementById('btnDownloadBlurred').onclick =
+      () => downloadB64(_blurredB64, 'safesnap_desenfocada.jpg');
 
     // Metadatos
     const metaEl = document.getElementById('metaContent');
@@ -423,17 +602,33 @@
     if (!fields.length) {
       metaEl.innerHTML = '<p class="empty-meta">No se encontraron metadatos en esta imagen.</p>';
     } else {
-      let rows = fields.slice(0, 20).map(f =>
-        `<tr>
-          <td>${escHtml(f.name)}<br><span class="badge badge-${f.risk}">${f.risk}</span></td>
-          <td>${escHtml(f.value.slice(0, 60))}</td>
-        </tr>`).join('');
+      // Se listan todos los campos encontrados, ordenados por nivel de riesgo
+      // de mayor a menor, con la descripción que explica qué es cada uno.
+      const estandar = f => (['IPTC', 'XMP', 'PNG'].includes(f.ifd) ? f.ifd : 'EXIF');
+      const rows = fields.map(f => {
+        const std   = estandar(f);
+        const value = f.value.length > 90 ? f.value.slice(0, 90) + '…' : f.value;
+        return `<tr>
+          <td>${escHtml(f.name)}<span class="std-tag">${std}</span><br><span class="badge badge-${f.risk}">${f.risk}</span></td>
+          <td class="meta-value" title="${escHtml(f.value)}">${escHtml(value)}</td>
+          <td class="meta-desc">${escHtml(f.description || '')}</td>
+        </tr>`;
+      }).join('');
+
+      const porEstandar = ['EXIF', 'IPTC', 'XMP', 'PNG']
+        .map(s => [s, fields.filter(f => estandar(f) === s).length])
+        .filter(([, n]) => n > 0)
+        .map(([s, n]) => `${n} ${s}`)
+        .join(' · ');
+
+      const gps = data.metadata.gps;
       metaEl.innerHTML = `
         <table class="meta-table">
-          <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+          <thead><tr><th>Campo</th><th>Valor</th><th>Qué significa</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${data.metadata.gps ? `<a class="gps-link" href="https://maps.google.com/?q=${data.metadata.gps.lat},${data.metadata.gps.lon}" target="_blank" rel="noopener">📍 Ver ubicación en Google Maps</a>` : ''}
+        <p class="meta-count">${fields.length} campos detectados — ${porEstandar}</p>
+        ${gps ? `<a class="gps-link" href="https://maps.google.com/?q=${encodeURIComponent(gps.lat + ',' + gps.lon)}" target="_blank" rel="noopener">📍 Ver ubicación en Google Maps</a>` : ''}
       `;
     }
 
@@ -452,11 +647,24 @@
       `;
     }
 
-    // Informe IA (se renderiza el markdown básico: **negrita**)
-    document.getElementById('aiReport').innerHTML = renderReport(data.ai_report.report);
+    // Informe IA (se renderiza el markdown básico: **negrita**). Si la capa
+    // de IA falló, se dice por qué en vez de dejar solo el texto genérico.
+    const aiEl = document.getElementById('aiReport');
+    aiEl.innerHTML = renderReport(data.ai_report.report);
+    if (data.ai_report.error) {
+      // El texto de `report` ya explica el fallo en términos comprensibles;
+      // aquí solo se aclara el alcance, sin volcar la excepción al usuario.
+      aiEl.innerHTML += `<p class="ai-error">Las otras dos capas del análisis no se ven `
+        + `afectadas: los metadatos y la detección visual se procesan en local.</p>`;
+    }
 
     resultsEl.classList.add('active');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function extFromDataUrl(url) {
+    const m = /^data:image\/(jpeg|png|webp)/.exec(url || '');
+    return m ? (m[1] === 'jpeg' ? 'jpg' : m[1]) : 'jpg';
   }
 
   function downloadB64(dataUrl, filename) {

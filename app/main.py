@@ -5,7 +5,6 @@ Expone los endpoints de análisis y sirve el frontend estático.
 
 import asyncio
 import gc
-import io
 import base64
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
@@ -35,6 +34,22 @@ app = FastAPI(
 
 _MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 
+# Formatos admitidos (RF01). Se comprueban por los bytes de cabecera del
+# fichero y no por la extensión ni por el Content-Type: ambos los declara el
+# cliente y pueden no corresponderse con el contenido real (RNF05).
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
+
+def _sniff_format(data: bytes) -> str | None:
+    """Identifica el formato real de la imagen por su firma binaria."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "JPEG"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "PNG"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "WEBP"
+    return None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,6 +78,7 @@ def health_check():
 
 @app.post("/analyze")
 async def analyze(
+    request:        Request,
     file:           UploadFile = File(...),
     blur_persons:   bool = Form(True),
     blur_vehicles:  bool = Form(True),
@@ -76,13 +92,27 @@ async def analyze(
     - Informe de privacidad generado por el modelo de visión (Groq)
     - Puntuación de riesgo global (0–100)
     """
-    # Validar que sea una imagen
+    # ── VALIDACIÓN (RNF05) ──────────────────────────────────────────────────
+    # Rechazar por el tamaño declarado antes de leer el cuerpo, para no cargar
+    # en memoria un envío desproporcionado.
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES * 1.1:
+        raise HTTPException(status_code=413, detail="La imagen no puede superar 15 MB.")
+
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="El archivo debe ser una imagen.")
 
     image_bytes = await file.read()
-    if len(image_bytes) > 15 * 1024 * 1024:  # 15 MB máximo
+    if len(image_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="La imagen no puede superar 15 MB.")
+
+    # El Content-Type lo declara el cliente; el formato se confirma sobre los
+    # bytes reales del fichero, que es lo que se va a procesar.
+    if _sniff_format(image_bytes) is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato no admitido. SafeSnap acepta imágenes JPEG, PNG y WEBP.",
+        )
 
     # ── CAPA 1: METADATOS ───────────────────────────────────────────────────
     meta_result = extract_metadata(image_bytes)
@@ -104,29 +134,16 @@ async def analyze(
     blurred_b64 = base64.b64encode(vision_result["blurred_image_bytes"]).decode("utf-8")
 
     # ── CAPA 3: INFORME IA (MODELO DE VISIÓN VÍA GROQ) ─────────────────────
-    # Reducir imagen para Groq a max 800px para ahorrar RAM en base64
+    # El módulo se encarga de preparar la imagen para la API; aquí solo se
+    # decide si esta capa se ejecuta.
     ai_result = {"report": "Análisis IA desactivado.", "model_used": "-", "error": None}
     if generate_ai:
-        from PIL import Image as _PIL
-        _img_ai = _PIL.open(io.BytesIO(image_bytes))
-        if max(_img_ai.width, _img_ai.height) > 800:
-            _img_ai.thumbnail((800, 800), _PIL.LANCZOS)
-            _buf = io.BytesIO()
-            _img_ai.save(_buf, format="JPEG", quality=85)
-            ai_image_bytes = _buf.getvalue()
-            del _buf
-        else:
-            ai_image_bytes = image_bytes
-        del _img_ai
-        gc.collect()
-
         ai_result = await asyncio.to_thread(
             generate_report,
-            image_bytes=ai_image_bytes,
+            image_bytes=image_bytes,
             metadata_fields=meta_result["fields"],
             detection_summary=vision_result["summary"],
         )
-        del ai_image_bytes
         gc.collect()
 
     # ── PUNTUACIÓN GLOBAL ───────────────────────────────────────────────────
@@ -140,6 +157,8 @@ async def analyze(
             "fields":     meta_result["fields"],
             "gps":        meta_result["gps"],
             "has_exif":   meta_result["has_exif"],
+            "has_iptc":   meta_result["has_iptc"],
+            "has_xmp":    meta_result["has_xmp"],
             "risk_score": meta_result["risk_score"],
             "format":     meta_result["format"],
         },
@@ -149,6 +168,8 @@ async def analyze(
             "risk_score":   vision_result["risk_score"],
             "blurred_image": f"data:image/jpeg;base64,{blurred_b64}",
             "blur_applied": vision_result["blurred_count"] > 0,
+            "blurred_count": vision_result["blurred_count"],
+            "detection_size": vision_result["detection_size"],
         },
         "ai_report": {
             "report":     ai_result["report"],
