@@ -44,7 +44,9 @@ Abre el navegador en http://localhost:8000
 
 En el despliegue de safesnap.es (Render) se instala antes la versión de CPU de
 torch, que ocupa mucho menos: `pip install torch torchvision --index-url
-https://download.pytorch.org/whl/cpu`.
+https://download.pytorch.org/whl/cpu`. El servicio corre con 512 MB de RAM, así
+que se fija además la variable de entorno `MALLOC_ARENA_MAX=2` para que la
+memoria que liberan numpy y torch vuelva al sistema.
 
 ## Variables de entorno
 
