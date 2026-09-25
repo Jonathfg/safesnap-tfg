@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo  SafeSnap — Iniciando servidor
+echo  SafeSnap - Iniciando servidor
 echo ============================================
 cd /d "%~dp0"
 

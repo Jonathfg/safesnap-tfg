@@ -14,52 +14,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Lado máximo de la imagen que se envía a la API. Reducirla antes de
-# codificarla en base64 recorta el pico de memoria del proceso —crítico en un
-# contenedor de 512 MB— sin afectar de forma apreciable a lo que el modelo es
-# capaz de describir.
+# Lado máximo de la imagen que se envía a la API (ahorra memoria y ancho de banda)
 MAX_SIDE_FOR_API = 800
 
 _client: Groq | None = None
 
-# Modelo multimodal de Groq utilizado para el análisis.
-#
-# Histórico de esta elección: el modelo original del proyecto era
-# meta-llama/llama-4-scout-17b-16e-instruct. Groq anunció su retirada el
-# 17/06/2026 y lo apagó el 17/07/2026, proponiendo como reemplazos oficiales
-# openai/gpt-oss-120b y qwen/qwen3.6-27b; de los dos, solo el segundo admite
-# imágenes, así que se migró a él.
-#
-# qwen3.6 resultó ser un modelo de razonamiento: gasta el presupuesto de
-# tokens en su bloque <think> antes de redactar, de modo que o se le da un
-# presupuesto alto —y entonces la petición excede el límite de tokens de
-# salida por minuto de la cuenta y devuelve 429— o se le da uno ajustado y
-# el informe llega vacío. Se usa por eso qwen3.8, que responde directamente:
-# consume unos 300 tokens por informe y cabe con holgura en el límite.
+# Modelo multimodal de Groq. El proyecto empezó con Llama 4 Scout, que Groq
+# retiró en julio de 2026; qwen3.6 gastaba el presupuesto de tokens en razonar,
+# así que se usa qwen3.8.
 MODEL = "qwen/qwen3.8-27b"
 
-# Los modelos de razonamiento (Qwen3, DeepSeek-R1, …) anteponen su
-# cadena de pensamiento entre etiquetas <think>…</think>. Ese bloque es
-# ruido interno que NO debe mostrarse al usuario en el informe final.
+# Algunos modelos devuelven su razonamiento entre <think>...</think>; se elimina.
 _THINK_RE = re.compile(r"<think\b[^>]*>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
 def _strip_reasoning(text: str) -> str:
-    """
-    Elimina el razonamiento interno del modelo (<think>…</think>) y deja
-    únicamente el informe final. Robusto ante respuestas truncadas en las
-    que la etiqueta de cierre </think> no llegó a generarse.
-    """
+    """Quita el bloque <think> del modelo, aunque venga sin cerrar."""
     if not text:
         return ""
-    # 1) Quitar los bloques completos <think>…</think>.
     cleaned = _THINK_RE.sub("", text)
-    # 2) Si quedó un <think> abierto sin cerrar (respuesta cortada por
-    #    max_tokens), descartar todo lo que va a partir de esa etiqueta.
+    # Bloque abierto sin cerrar (respuesta cortada por max_tokens)
     low = cleaned.lower()
     if "<think>" in low:
         cleaned = cleaned[: low.index("<think>")]
-    # 3) Limpiar cualquier etiqueta residual suelta.
     cleaned = re.sub(r"</?think\b[^>]*>", "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip()
 
@@ -71,9 +48,7 @@ def _prepare_image(image_bytes: bytes) -> bytes:
     """
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        # Enderezar la imagen según el EXIF antes de enviarla: si no, una foto
-        # vertical de móvil llegaría tumbada al modelo y su descripción no
-        # correspondería con lo que ve el usuario.
+        # Aplicar la orientación EXIF antes de enviarla
         img = ImageOps.exif_transpose(img)
         if max(img.width, img.height) <= MAX_SIDE_FOR_API:
             return image_bytes
@@ -177,12 +152,7 @@ def generate_report(
                     ],
                 }
             ],
-            # El presupuesto tiene que cubrir el razonamiento interno del
-            # modelo además del informe, pero no puede superar el límite de
-            # tokens de salida por minuto de la cuenta: si se pide más de lo
-            # que queda disponible, la API responde 429 y el usuario se queda
-            # sin informe. Con 900 el informe sale completo —el consumo medido
-            # ronda los 500 tokens— y la petición cabe siempre en el límite.
+            # 900 tokens bastan para el informe sin superar el límite por minuto de la cuenta
             max_tokens=900,
             temperature=0.3,
         )
@@ -197,8 +167,7 @@ def generate_report(
         }
     except Exception as e:
         detail = str(e)
-        # Traducir el caso más habitual —agotar la cuota gratuita de la API—
-        # a un mensaje que el usuario pueda entender.
+        # Mensaje claro cuando se agota la cuota de la API
         if "429" in detail or "rate_limit" in detail.lower():
             message = (
                 "El informe en lenguaje natural no está disponible ahora mismo: "
