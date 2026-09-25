@@ -27,7 +27,9 @@ Bajo (0–29), Medio (30–59), Alto (60–100).
 
 ## Instalación y arranque
 
-Requiere Python 3.10 o superior.
+Requiere Python 3.11, la versión con la que se ha desarrollado y desplegado. El
+fichero `.python-version` la fija para las herramientas que lo leen (pyenv, uv,
+Render).
 
 ```bash
 pip install -r requirements.txt
