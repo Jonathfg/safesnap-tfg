@@ -25,6 +25,11 @@ RISK_MAP: dict[str, tuple[str, str]] = {
     "GPSInfo":            ("alto",  "Bloque completo de datos GPS"),
     "BodySerialNumber":   ("alto",  "Número de serie del dispositivo"),
     "CameraSerialNumber": ("alto",  "Número de serie de la cámara"),
+    "LensSerialNumber":   ("alto",  "Número de serie del objetivo"),
+    "SerialNumber":       ("alto",  "Número de serie del dispositivo"),
+    "GPSLatitudeRef":     ("alto",  "Hemisferio de la latitud (N/S)"),
+    "GPSLongitudeRef":    ("alto",  "Hemisferio de la longitud (E/W)"),
+    "GPSAltitudeRef":     ("alto",  "Referencia de la altitud (sobre o bajo el nivel del mar)"),
     "DateTimeOriginal":   ("medio", "Fecha y hora exacta de la captura"),
     "DateTime":           ("medio", "Fecha y hora de modificación"),
     "DateTimeDigitized":  ("medio", "Fecha y hora de digitalización"),
@@ -35,6 +40,14 @@ RISK_MAP: dict[str, tuple[str, str]] = {
     "Copyright":          ("medio", "Información de copyright"),
     "ImageDescription":   ("medio", "Descripción incrustada en la imagen"),
     "UserComment":        ("medio", "Comentario de usuario"),
+    "GPSDateStamp":       ("medio", "Fecha de la captura registrada por el GPS"),
+    "GPSTimeStamp":       ("medio", "Hora de la captura registrada por el GPS"),
+    "CameraOwnerName":    ("medio", "Nombre del propietario de la cámara"),
+    "OwnerName":          ("medio", "Nombre del propietario de la cámara"),
+    "HostComputer":       ("medio", "Equipo con el que se procesó la imagen"),
+    "ImageUniqueID":      ("medio", "Identificador único de la imagen"),
+    "MakerNote":          ("medio", "Bloque propietario del fabricante; puede incluir ajustes y número de serie"),
+    "LensModel":          ("medio", "Modelo del objetivo utilizado"),
     "FNumber":            ("bajo",  "Apertura del objetivo"),
     "ExposureTime":       ("bajo",  "Velocidad de obturación"),
     "ISOSpeedRatings":    ("bajo",  "Sensibilidad ISO"),
@@ -46,13 +59,11 @@ RISK_MAP: dict[str, tuple[str, str]] = {
     "ColorSpace":         ("bajo",  "Espacio de color"),
     "ExifImageWidth":     ("bajo",  "Anchura de la imagen"),
     "ExifImageHeight":    ("bajo",  "Altura de la imagen"),
+    "FlashpixVersion":    ("bajo",  "Versión del formato Flashpix"),
 }
 
-# Clasificación de los campos IPTC y XMP. Se mantiene en un diccionario
-# aparte del de EXIF a propósito: los nombres de estos estándares son
-# genéricos ("Source", "City", "creator") y, si se buscaran por subcadena
-# sobre los nombres EXIF, producirían falsos emparejamientos —"LightSource"
-# se clasificaría como fuente editorial, por ejemplo—.
+# Tabla aparte para IPTC y XMP: sus nombres son genéricos ("Source", "City")
+# y chocarían con los EXIF ("LightSource")
 RISK_MAP_IPTC_XMP: dict[str, tuple[str, str]] = {
     "GPSLatitude":     ("alto",  "Coordenada GPS — latitud exacta"),
     "GPSLongitude":    ("alto",  "Coordenada GPS — longitud exacta"),
@@ -66,9 +77,7 @@ RISK_MAP_IPTC_XMP: dict[str, tuple[str, str]] = {
     "Byline":          ("medio", "Autor declarado de la fotografía"),
     "Author":          ("medio", "Nombre del autor registrado"),
     "Comment":         ("medio", "Comentario incrustado en la imagen"),
-    # "CreatorTool" antes que "creator": la búsqueda es por subcadena y se
-    # detiene en la primera coincidencia, así que la clave más específica
-    # tiene que ir primero o "CreatorTool" se leería como el nombre del autor.
+    # CreatorTool antes que creator: la búsqueda es por subcadena
     "CreatorTool":     ("medio", "Herramienta de edición utilizada"),
     "Software":        ("medio", "Firmware o software utilizado"),
     "creator":         ("medio", "Nombre del autor registrado"),
@@ -95,8 +104,7 @@ RISK_MAP_IPTC_XMP: dict[str, tuple[str, str]] = {
 
 RISK_SCORE = {"alto": 30, "medio": 10, "bajo": 2}
 
-# Tope del paquete XMP que se acepta parsear, muy por encima de cualquiera
-# legítimo (los reales rondan los pocos kilobytes).
+# Tope del paquete XMP que se parsea (los reales ocupan unos pocos KB)
 MAX_XMP_BYTES = 256 * 1024
 
 # Tags IPTC IIM del registro 2 (Application Record) con relevancia práctica.
@@ -147,6 +155,10 @@ _XMP_PREFIX: dict[str, str] = {
 }
 
 
+# Tags que solo apuntan a otro IFD (ExifTag, GPSTag, InteroperabilityTag)
+_POINTER_TAGS = {34665, 34853, 40965}
+
+
 def _tag_name(ifd_name: str, tag_id: int) -> str:
     """Devuelve el nombre legible de un tag EXIF dado su IFD y su ID."""
     try:
@@ -163,16 +175,15 @@ def _classify(name: str, ifd_name: str) -> tuple[str, str]:
     """
     table = RISK_MAP_IPTC_XMP if ifd_name in ("IPTC", "XMP") else RISK_MAP
 
-    # XMP puede replicar los campos de EXIF y TIFF bajo sus propios espacios de
-    # nombres ("XMP:exif:LightSource"). Esos van al diccionario de EXIF: si se
-    # buscaran en el de IPTC/XMP, la clave genérica "Source" emparejaría con
-    # LightSource, que es justo el falso positivo que la separación evita.
+    # Los campos exif:/tiff: replicados en XMP se clasifican con la tabla EXIF
     if ifd_name == "XMP" and (":exif:" in name or ":tiff:" in name):
         table = RISK_MAP
 
-    # Comparar solo contra el nombre local, sin el prefijo del estándar, para
-    # que "XMP:" o "IPTC:" no participen en la coincidencia por subcadena.
+    # Comparar solo el nombre local, sin el prefijo del estándar
     local = name.rsplit(":", 1)[-1].lower()
+    for key, entry in table.items():
+        if key.lower() == local:
+            return entry
     for key, (level, desc) in table.items():
         if key.lower() in local:
             return level, desc
@@ -180,12 +191,7 @@ def _classify(name: str, ifd_name: str) -> tuple[str, str]:
 
 
 def _dms_to_text(coords: tuple) -> str | None:
-    """
-    Formatea una coordenada EXIF (tres fracciones racionales: grados,
-    minutos y segundos) como texto legible. Sin esto el usuario vería la
-    estructura interna del estándar —((50, 1), (49, 1), (1234, 100))—,
-    que no le dice nada.
-    """
+    """Coordenada EXIF (grados, minutos, segundos) como texto legible."""
     try:
         d = coords[0][0] / coords[0][1]
         m = coords[1][0] / coords[1][1]
@@ -195,9 +201,7 @@ def _dms_to_text(coords: tuple) -> str | None:
         return None
 
 
-# Tags cuyo valor son tres racionales que representan una coordenada. Solo
-# estos deben formatearse como grados/minutos/segundos: hay otros tags con la
-# misma forma —YCbCrCoefficients, o el propio GPSTimeStamp— que no son ángulos.
+# Solo estos tags son coordenadas; GPSTimeStamp tiene la misma forma pero es una hora
 _COORD_TAGS = {
     "GPSLatitude", "GPSLongitude", "GPSDestLatitude", "GPSDestLongitude",
 }
@@ -288,9 +292,8 @@ def extract_iptc(img: Image.Image) -> list[tuple[str, str]]:
     for key, raw in info.items():
         name = IPTC_TAGS.get(key)
         if name is None:
-            # Solo interesa el registro 2 (Application Record); el resto son
-            # datos de envío del estándar sin valor para la privacidad.
-            if not (isinstance(key, tuple) and len(key) == 2 and key[0] == 2):
+            # Solo interesa el registro 2 (Application Record); (2,0) es la versión, binaria
+            if not (isinstance(key, tuple) and len(key) == 2 and key[0] == 2 and key[1] != 0):
                 continue
             name = f"IPTC:Tag_{key[1]}"
         value = _clean_text(raw)
@@ -300,12 +303,7 @@ def extract_iptc(img: Image.Image) -> list[tuple[str, str]]:
 
 
 def _safe_name(text: str, fallback: str = "") -> str:
-    """
-    Deja un identificador con caracteres seguros y longitud acotada. El nombre
-    de un campo XMP procede del propio fichero, así que es texto arbitrario que
-    acaba en la interfaz y en el prompt del modelo: conviene no propagarlo tal
-    cual.
-    """
+    """Deja solo caracteres seguros en un nombre de campo XMP, que viene del propio fichero."""
     cleaned = "".join(c for c in text if c.isalnum() or c in "_.-")[:40]
     return cleaned or fallback
 
@@ -316,8 +314,7 @@ def _xmp_qname(tag: str) -> tuple[str, str]:
         uri, local = tag[1:].split("}", 1)
         prefix = _XMP_PREFIX.get(uri)
         if prefix is None:
-            # Espacio de nombres desconocido: la URI la escribe quien creó el
-            # fichero, así que no se usa como nombre.
+            # Espacio de nombres desconocido
             prefix = "ns"
         return prefix, _safe_name(local, "campo")
     return "", _safe_name(tag, "campo")
@@ -345,16 +342,13 @@ def extract_xmp(img: Image.Image) -> list[tuple[str, str]]:
     if not raw:
         return []
 
-    # Un paquete XMP legítimo ocupa unos pocos kilobytes. Parsear uno enorme
-    # construiría un árbol de nodos que multiplica varias veces su tamaño en
-    # memoria, y el proceso corre con 512 MB: por encima del tope se descarta.
+    # Un paquete XMP enorme se descarta para no disparar la memoria
     if len(raw) > MAX_XMP_BYTES:
         return [("XMP", "paquete XMP demasiado grande, no se ha analizado")]
 
     text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
 
-    # El paquete puede venir envuelto en cabeceras <?xpacket?>; se recorta
-    # al fragmento XML válido antes de parsear.
+    # Recortar el envoltorio <?xpacket?> antes de parsear
     start = text.find("<x:xmpmeta")
     if start == -1:
         start = text.find("<rdf:RDF")
@@ -371,8 +365,7 @@ def extract_xmp(img: Image.Image) -> list[tuple[str, str]]:
     fields: list[tuple[str, str]] = []
     seen: set[str] = set()
     for description in root.iter(f"{{{_RDF_NS}}}Description"):
-        # XMP admite dos formas para la misma propiedad: como atributo del
-        # rdf:Description o como elemento hijo. Hay que leer ambas.
+        # Una propiedad XMP puede ir como atributo o como elemento hijo
         for attr, value in description.attrib.items():
             prefix, local = _xmp_qname(attr)
             if prefix == "rdf" or local in ("about", "nodeID", "parseType", "ID"):
@@ -467,9 +460,10 @@ def extract_metadata(image_bytes: bytes) -> dict:
             if not ifd:
                 continue
             for tag_id, raw_value in ifd.items():
+                if tag_id in _POINTER_TAGS:
+                    continue
                 name = _tag_name(ifd_name, tag_id)
-                # Un tag con un valor de forma inesperada no debe tumbar el
-                # análisis entero: se muestra en crudo y se sigue.
+                # Un valor raro no debe romper el análisis
                 try:
                     value_str = _decode_value(raw_value, name)
                 except Exception:
@@ -502,10 +496,7 @@ def extract_metadata(image_bytes: bytes) -> dict:
             "ifd":         "IPTC",
         })
 
-    # ── Texto incrustado en PNG ─────────────────────────────────────────────
-    # PNG guarda pares clave/valor en chunks tEXt e iTXt, que Pillow expone
-    # como cadenas sueltas en img.info. Ahí acaban campos como Author o
-    # Description cuando la imagen se ha editado.
+    # ── Texto incrustado en PNG (chunks tEXt/iTXt, donde acaban Author o Comment) ──
     for name, value_str in extract_png_text(img):
         risk_level, description = _classify(name, "XMP")
         accumulated_score += RISK_SCORE.get(risk_level, 2)
@@ -551,16 +542,10 @@ def extract_metadata(image_bytes: bytes) -> dict:
 
 def strip_metadata(image_bytes: bytes) -> bytes:
     """
-    Genera una copia del archivo de imagen sin ningún metadato rastreable.
-    Preserva el formato original (JPEG, PNG o WEBP).
-
-    Al reabrir la imagen con Pillow y volver a guardarla sin pasarle los
-    bloques de metadatos, se descartan de una vez EXIF, IPTC y XMP, además
-    de los chunks de texto de PNG. En JPEG se aplica piexif.remove() como
-    refuerzo sobre los bytes resultantes.
-
-    Si el archivo no se puede procesar, se devuelve el original sin tocar:
-    es preferible a interrumpir todo el análisis con un error.
+    Genera una copia de la imagen sin metadatos, conservando el formato
+    (JPEG, PNG o WEBP). Al guardarla de nuevo sin pasar los bloques se pierden
+    EXIF, IPTC, XMP y el texto de PNG; en JPEG se aplica además piexif.remove().
+    Si el archivo no se puede procesar se devuelve tal cual.
     """
     try:
         img = Image.open(io.BytesIO(image_bytes))
@@ -568,9 +553,7 @@ def strip_metadata(image_bytes: bytes) -> bytes:
         if fmt not in ("JPEG", "PNG", "WEBP"):
             fmt = "JPEG"
 
-        # Al quitar el EXIF se pierde también el campo Orientation, que es lo
-        # que indica al visor cómo girar la foto. Sin aplicar antes esa
-        # rotación a los píxeles, la imagen "limpia" se vería tumbada.
+        # Sin el EXIF se pierde Orientation: aplicar antes la rotación a los píxeles
         img = ImageOps.exif_transpose(img)
 
         if fmt == "JPEG" and img.mode not in ("RGB", "L"):
