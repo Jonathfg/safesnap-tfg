@@ -48,6 +48,10 @@ def _prepare_image(image_bytes: bytes) -> bytes:
     """
     try:
         img = Image.open(io.BytesIO(image_bytes))
+        try:
+            img.draft("RGB", (MAX_SIDE_FOR_API, MAX_SIDE_FOR_API))
+        except Exception:
+            pass
         # Aplicar la orientación EXIF antes de enviarla
         img = ImageOps.exif_transpose(img)
         if max(img.width, img.height) <= MAX_SIDE_FOR_API:

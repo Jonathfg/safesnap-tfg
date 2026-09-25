@@ -4,7 +4,6 @@ Expone los endpoints de análisis y sirve el frontend estático.
 """
 
 import asyncio
-import gc
 import base64
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
@@ -13,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.metadata   import extract_metadata, strip_metadata
-from app.modules.vision     import analyze_image, _get_model
+from app.modules.vision     import analyze_image, _get_model, _release_memory
 from app.modules.ai_report  import generate_report
 from app.modules.risk_score import calculate_global_risk
 
@@ -113,6 +112,7 @@ async def analyze(
     clean_bytes = strip_metadata(image_bytes)
     clean_b64   = base64.b64encode(clean_bytes).decode("utf-8")
     clean_mime  = _MIME.get(meta_result["format"].upper(), "image/jpeg")
+    del clean_bytes
 
     # ── CAPA 2: DETECCIÓN VISUAL (YOLOv8) ──────────────────────────────────
     # En un thread aparte: la inferencia es síncrona y no debe bloquear el event loop
@@ -134,13 +134,15 @@ async def analyze(
             metadata_fields=meta_result["fields"],
             detection_summary=vision_result["summary"],
         )
-        gc.collect()
 
     # ── PUNTUACIÓN GLOBAL ───────────────────────────────────────────────────
     risk = calculate_global_risk(
         metadata_score=meta_result["risk_score"],
         vision_score=vision_result["risk_score"],
     )
+
+    # Devolver al sistema la memoria de los buffers de esta petición
+    _release_memory()
 
     return JSONResponse({
         "metadata": {

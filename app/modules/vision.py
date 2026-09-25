@@ -46,6 +46,9 @@ DETECTION_RISK_SCORE: dict[str, int] = {
     "vehículo (camión)":   10,
 }
 
+# Lado máximo con el que se trabaja: YOLO infiere a 640 px y así se ahorra memoria
+MAX_DIM = 1280
+
 # Modelo YOLOv8n (nano) — equilibrio entre velocidad y precisión para TFG
 _model: YOLO | None = None
 
@@ -106,11 +109,15 @@ def analyze_image(
     """
     img = Image.open(io.BytesIO(image_bytes))
 
+    # Decodificar el JPEG ya reducido: una foto de 12 Mpx no hace falta entera
+    try:
+        img.draft("RGB", (MAX_DIM, MAX_DIM))
+    except Exception:
+        pass
+
     # Aplicar la orientación EXIF antes de inferir
     img = ImageOps.exif_transpose(img)
 
-    # Escalar a máximo 1280px para reducir uso de RAM (YOLO trabaja a 640px internamente)
-    MAX_DIM = 1280
     if max(img.width, img.height) > MAX_DIM:
         img.thumbnail((MAX_DIM, MAX_DIM), Image.LANCZOS)
 
