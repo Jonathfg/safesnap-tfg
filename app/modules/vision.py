@@ -3,12 +3,6 @@ Módulo de análisis visual con YOLOv8.
 Detecta las clases sensibles que ofrece el modelo preentrenado sobre COCO
 —personas y vehículos— y aplica desenfoque selectivo sobre las regiones
 detectadas (ROI).
-
-Cobertura y límites del enfoque: la clase person cubre en la práctica la
-protección de caras, porque la caja de una persona en primer plano incluye
-la cabeza. Las matrículas se cubren de forma indirecta, desenfocando la
-región completa del vehículo. Los documentos quedan fuera del alcance:
-COCO no tiene una clase para ellos.
 """
 
 import gc
@@ -20,18 +14,12 @@ from PIL import Image, ImageOps
 from ultralytics import YOLO
 import torch
 
-# Menos hilos de torch = menos memoria (Render 512 MB) y basta con la CPU
-# disponible en el plan; evita picos de RAM que provocaban OOM.
+# Un solo hilo de torch: menos memoria (Render, 512 MB)
 torch.set_num_threads(1)
 
 
 def _release_memory() -> None:
-    """
-    Libera memoria y la devuelve al sistema operativo. numpy/cv2/torch dejan
-    el RSS del proceso alto tras el análisis; en un contenedor de 512 MB eso
-    se acumula y acaba en OOM. malloc_trim fuerza a glibc a devolver el heap
-    liberado (no-op fuera de Linux, p. ej. en desarrollo local Windows).
-    """
+    """Libera memoria y la devuelve al sistema (malloc_trim solo existe en Linux)."""
     gc.collect()
     try:
         ctypes.CDLL("libc.so.6").malloc_trim(0)
@@ -79,7 +67,7 @@ def _cv2_to_pil(arr: np.ndarray) -> Image.Image:
 
 
 def _apply_blur(image: np.ndarray, x1: int, y1: int, x2: int, y2: int,
-                strength: int = 31) -> np.ndarray:
+                strength: int = 51) -> np.ndarray:
     """Aplica desenfoque gaussiano sobre una región de interés (ROI)."""
     roi = image[y1:y2, x1:x2]
     if roi.size == 0:
@@ -105,15 +93,8 @@ def analyze_image(
         image_bytes: Imagen original en bytes.
         blur_persons: Si True, desenfoca personas detectadas.
         blur_vehicles: Si True, desenfoca vehículos detectados.
-        confidence_threshold: Umbral de confianza mínimo para aceptar detección.
-            Se usa 0.40, valor ajustado por prueba y error sobre el conjunto de
-            validación: por encima el modelo dejaba pasar personas en planos
-            medios o con mala iluminación, y por debajo aparecían demasiados
-            falsos positivos.
-        imgsz: Resolución de inferencia de YOLO. Se usa 640 (nativo) para no
-            exceder los 512 MB del plan de Render. Subirlo (p. ej. 960) mejora
-            la detección de personas pequeñas/lejanas pero dispara la RAM y
-            provoca OOM en 512 MB — solo recomendable con 2 GB (plan Standard).
+        confidence_threshold: Umbral de confianza. 0,40 es el valor usado en las pruebas.
+        imgsz: Resolución de inferencia (640, la nativa del modelo).
 
     Returns:
         dict con:
@@ -121,16 +102,11 @@ def analyze_image(
           - blurred_image_bytes: imagen con desenfoque aplicado (JPEG)
           - risk_score: puntuación de riesgo visual (0–50)
           - summary: resumen legible de lo encontrado
-          - detection_size: {w, h} de la imagen sobre la que se detectó, para
-            que el frontend pueda escalar las cajas al tamaño con que muestra
-            la imagen original
+          - detection_size: {w, h} de la imagen sobre la que se detectó
     """
     img = Image.open(io.BytesIO(image_bytes))
 
-    # Aplicar la rotación que indica el campo Orientation del EXIF. Las fotos
-    # de móvil en vertical se guardan giradas con una marca que dice cómo hay
-    # que mostrarlas; sin esto la inferencia trabajaría sobre la imagen tumbada
-    # y las cajas que devolvemos no cuadrarían con la foto que ve el usuario.
+    # Aplicar la orientación EXIF antes de inferir
     img = ImageOps.exif_transpose(img)
 
     # Escalar a máximo 1280px para reducir uso de RAM (YOLO trabaja a 640px internamente)
@@ -141,9 +117,6 @@ def analyze_image(
     cv_img = _pil_to_cv2(img)
     model = _get_model()
 
-    # El umbral se aplica ya en la inferencia: YOLO no devuelve cajas por
-    # debajo de conf, así que una detección con menos confianza no llega
-    # siquiera a results.boxes.
     results = model(cv_img, imgsz=imgsz, conf=confidence_threshold, verbose=False)[0]
 
     detections = []
@@ -198,9 +171,7 @@ def analyze_image(
         "risk_score":           min(accumulated_score, 50),
         "summary":              summary,
         "blurred_count":        blurred_count,
-        # Las coordenadas de las cajas están en el espacio de la imagen ya
-        # reescalada, no en el de la original que el usuario subió. Sin este
-        # dato el frontend no podría dibujarlas encima de la foto original.
+        # Tamaño sobre el que se detectó, para escalar las cajas en el frontend
         "detection_size":       {"w": out_pil.width, "h": out_pil.height},
     }
 

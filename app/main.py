@@ -34,14 +34,11 @@ app = FastAPI(
 
 _MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 
-# Formatos admitidos (RF01). Se comprueban por los bytes de cabecera del
-# fichero y no por la extensión ni por el Content-Type: ambos los declara el
-# cliente y pueden no corresponderse con el contenido real (RNF05).
-MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB
 
 
 def _sniff_format(data: bytes) -> str | None:
-    """Identifica el formato real de la imagen por su firma binaria."""
+    """Identifica el formato de la imagen por su cabecera, sin fiarse del Content-Type."""
     if data.startswith(b"\xff\xd8\xff"):
         return "JPEG"
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -92,22 +89,17 @@ async def analyze(
     - Informe de privacidad generado por el modelo de visión (Groq)
     - Puntuación de riesgo global (0–100)
     """
-    # ── VALIDACIÓN (RNF05) ──────────────────────────────────────────────────
-    # Rechazar por el tamaño declarado antes de leer el cuerpo, para no cargar
-    # en memoria un envío desproporcionado.
+    # ── VALIDACIÓN ──────────────────────────────────────────────────────────
+    # Rechazar por el tamaño declarado antes de leer el cuerpo
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES * 1.1:
         raise HTTPException(status_code=413, detail="La imagen no puede superar 15 MB.")
-
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="El archivo debe ser una imagen.")
 
     image_bytes = await file.read()
     if len(image_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="La imagen no puede superar 15 MB.")
 
-    # El Content-Type lo declara el cliente; el formato se confirma sobre los
-    # bytes reales del fichero, que es lo que se va a procesar.
+    # Comprobar el formato sobre los bytes del fichero
     if _sniff_format(image_bytes) is None:
         raise HTTPException(
             status_code=400,
@@ -123,8 +115,7 @@ async def analyze(
     clean_mime  = _MIME.get(meta_result["format"].upper(), "image/jpeg")
 
     # ── CAPA 2: DETECCIÓN VISUAL (YOLOv8) ──────────────────────────────────
-    # Se ejecuta en un thread aparte: la inferencia bloquea la CPU varios
-    # segundos/minutos en el free tier, y no debe congelar el event loop.
+    # En un thread aparte: la inferencia es síncrona y no debe bloquear el event loop
     vision_result = await asyncio.to_thread(
         analyze_image,
         image_bytes,
@@ -134,8 +125,7 @@ async def analyze(
     blurred_b64 = base64.b64encode(vision_result["blurred_image_bytes"]).decode("utf-8")
 
     # ── CAPA 3: INFORME IA (MODELO DE VISIÓN VÍA GROQ) ─────────────────────
-    # El módulo se encarga de preparar la imagen para la API; aquí solo se
-    # decide si esta capa se ejecuta.
+    # El módulo prepara la imagen para la API; aquí solo se decide si se llama
     ai_result = {"report": "Análisis IA desactivado.", "model_used": "-", "error": None}
     if generate_ai:
         ai_result = await asyncio.to_thread(

@@ -45,6 +45,7 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: 0.75rem 2rem;
       background: color-mix(in oklab, var(--bg) 85%, transparent);
+      -webkit-backdrop-filter: blur(12px);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
@@ -72,6 +73,7 @@
     .drop-icon { color: var(--primary); margin-bottom: 0.75rem; }
     .drop-title { font-weight: 600; margin-bottom: 0.25rem; }
     .drop-sub { color: var(--muted); font-size: 0.875rem; }
+    .drop-btn { position: relative; z-index: 1; margin-top: 0.9rem; }
 
     /* OPCIONES */
     .options { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1.25rem; }
@@ -160,11 +162,7 @@
     .img-wrap span { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 500; }
     .img-wrap img { width: 100%; border-radius: 0.5rem; border: 1px solid var(--border); display: block; }
 
-    /* CAPA DE DETECCIONES: el canvas se superpone a la imagen original para
-       dibujar las cajas de YOLOv8 antes de que el usuario confirme el blur. */
-    /* El borde va en el contenedor y no en la imagen: si lo llevara la
-       imagen, su contenido empezaría un píxel más adentro que el canvas y
-       las cajas se dibujarían desplazadas respecto a lo detectado. */
+    /* CANVAS DE DETECCIONES (superpuesto a la imagen original) */
     .canvas-wrap {
       position: relative; line-height: 0; overflow: hidden;
       border: 1px solid var(--border); border-radius: 0.5rem;
@@ -249,6 +247,7 @@
     </div>
     <p class="drop-title" id="dropTitle">Arrastra una foto o haz clic para seleccionar</p>
     <p class="drop-sub">JPEG, PNG o WEBP · máx. 15 MB</p>
+    <button type="button" class="btn-outline drop-btn" id="btnSelect">Seleccionar archivo</button>
   </div>
 
   <div class="options">
@@ -316,9 +315,7 @@
         </div>
       </div>
 
-      <!-- RF10 / CU05: el usuario ve marcado lo que se ha detectado y decide
-           si aplicar el desenfoque. Hasta que confirma no se muestra la
-           versión desenfocada ni se ofrece su descarga. -->
+      <!-- CONFIRMACIÓN DEL DESENFOQUE -->
       <div class="confirm-row" id="confirmRow" style="display:none">
         <p class="confirm-text" id="confirmText"></p>
         <button class="btn-primary btn-inline" id="btnConfirmBlur">Aplicar desenfoque</button>
@@ -377,17 +374,25 @@
   const analyzeBtn  = document.getElementById('analyzeBtn');
   let selectedFile  = null;
 
-  // Formatos admitidos (RF01). La validación se repite en el servidor sobre
-  // los bytes del fichero; aquí es solo para avisar al usuario al instante.
+  // El servidor vuelve a validar sobre los bytes; esto solo avisa al instante
   const FORMATOS_OK = ['image/jpeg', 'image/png', 'image/webp'];
+  const MAX_BYTES   = 15 * 1024 * 1024;
+
+  function rechazar(msg) {
+    selectedFile = null;
+    analyzeBtn.disabled = true;
+    dropTitle.textContent = msg;
+    dropTitle.style.color = 'var(--danger)';
+  }
 
   function setFile(f) {
     if (!f) return;
-    if (!FORMATOS_OK.includes(f.type)) {
-      selectedFile = null;
-      analyzeBtn.disabled = true;
-      dropTitle.textContent = `«${f.name}» no es un formato admitido — usa JPEG, PNG o WEBP`;
-      dropTitle.style.color = 'var(--danger)';
+    if (f.type && !FORMATOS_OK.includes(f.type)) {
+      rechazar(`«${f.name}» no es un formato admitido — usa JPEG, PNG o WEBP`);
+      return;
+    }
+    if (f.size > MAX_BYTES) {
+      rechazar(`«${f.name}» supera el máximo de 15 MB`);
       return;
     }
     selectedFile = f;
@@ -397,6 +402,7 @@
   }
 
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+  document.getElementById('btnSelect').addEventListener('click', () => fileInput.click());
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
   dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); setFile(e.dataTransfer.files[0]); });
@@ -419,11 +425,12 @@
     resultsEl.classList.remove('active');
     loader.classList.add('active');
 
+    const steps = document.getElementById('chkAI').checked ? loaderSteps : loaderSteps.slice(0, 2);
     let step = 0;
-    loaderText.textContent = loaderSteps[0];
+    loaderText.textContent = steps[0];
     loaderInterval = setInterval(() => {
-      step = (step + 1) % loaderSteps.length;
-      loaderText.textContent = loaderSteps[step];
+      step = (step + 1) % steps.length;
+      loaderText.textContent = steps[step];
     }, 2000);
 
     const form = new FormData();
@@ -452,10 +459,7 @@
   // ── RENDER ────────────────────────────────────────────────────────────────
   let _cleanB64 = '', _blurredB64 = '', _objectUrl = null, _redraw = null;
 
-  // Dibuja sobre la imagen original una caja por cada elemento detectado.
-  // Las coordenadas que devuelve el backend están en el espacio de la imagen
-  // reescalada para la inferencia, así que hay que reescalarlas al tamaño con
-  // el que el navegador está mostrando la foto.
+  // Dibuja las cajas escalando de detection_size al tamaño mostrado
   function drawDetections(data) {
     const img     = document.getElementById('imgOriginal');
     const canvas  = document.getElementById('detCanvas');
@@ -483,8 +487,6 @@
       ctx.clearRect(0, 0, w, h);
       if (!dets.length) return;
 
-      // Sin detection_size caeríamos en las dimensiones naturales, que solo
-      // coinciden si el backend no tuvo que reescalar la imagen.
       const refW = (size && size.w) || img.naturalWidth  || w;
       const refH = (size && size.h) || img.naturalHeight || h;
       const sx = w / refW, sy = h / refH;
@@ -509,7 +511,7 @@
         const tagH   = fontSize + 7;
         const tagY   = y - tagH < 0 ? y : y - tagH;   // no salirse por arriba
         ctx.fillStyle = color;
-        ctx.fillRect(x, tagY, Math.min(tagW, bw > 24 ? tagW : tagW), tagH);
+        ctx.fillRect(x, tagY, tagW, tagH);
         ctx.fillStyle = '#fff';
         ctx.fillText(tag, x + padX, tagY + tagH - 6);
       });
@@ -545,11 +547,10 @@
     _cleanB64      = data.clean_image;
     _blurredB64    = data.vision.blurred_image;
 
-    // Dibujar las cajas de las detecciones sobre la imagen original (RF10).
+    // Cajas de las detecciones
     drawDetections(data);
 
-    // El resultado desenfocado permanece oculto hasta que el usuario confirma.
-    // Si no había nada que desenfocar, se explica en vez de duplicar la foto.
+    // La versión desenfocada se muestra al confirmar
     const blurApplied  = data.vision.blur_applied;
     const blurredCount = data.vision.blurred_count || 0;
     const blurredWrap  = document.getElementById('blurredWrap');
@@ -564,9 +565,7 @@
     if (blurApplied) {
       document.getElementById('blurNote').style.display = 'none';
       confirmRow.style.display = '';
-      // Se distinguen los dos números: pueden diferir si el usuario desactivó
-      // el desenfoque de personas o de vehículos, en cuyo caso hay elementos
-      // marcados sobre la imagen que no se van a desenfocar.
+      // Detectados y desenfocados pueden diferir según las opciones
       const totalDet = (data.vision.detections || []).length;
       const marcados = totalDet === blurredCount
         ? `Se han marcado ${blurredCount} ${blurredCount === 1 ? 'elemento' : 'elementos'} sobre la imagen`
@@ -578,9 +577,7 @@
         btnDlBlur.style.display   = '';
         imgCompare.style.gridTemplateColumns = '';
         confirmRow.style.display  = 'none';
-        // Al pasar a dos columnas la imagen original se encoge a la mitad, así
-        // que hay que repintar las cajas sobre el nuevo tamaño. Se espera un
-        // fotograma para que el navegador haya recalculado el layout.
+        // Repintar tras el cambio de layout
         requestAnimationFrame(() => { if (_redraw) _redraw(); });
         blurredWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       };
@@ -589,8 +586,7 @@
       document.getElementById('blurNote').style.display = 'block';
     }
 
-    // Descargas. La imagen limpia conserva el formato original, así que la
-    // extensión se deduce del propio data URI en lugar de asumir .jpg.
+    // Descargas (la copia limpia conserva el formato original)
     document.getElementById('btnDownloadClean').onclick =
       () => downloadB64(_cleanB64, `safesnap_sin_metadatos.${extFromDataUrl(_cleanB64)}`);
     document.getElementById('btnDownloadBlurred').onclick =
@@ -602,8 +598,6 @@
     if (!fields.length) {
       metaEl.innerHTML = '<p class="empty-meta">No se encontraron metadatos en esta imagen.</p>';
     } else {
-      // Se listan todos los campos encontrados, ordenados por nivel de riesgo
-      // de mayor a menor, con la descripción que explica qué es cada uno.
       const estandar = f => (['IPTC', 'XMP', 'PNG'].includes(f.ifd) ? f.ifd : 'EXIF');
       const rows = fields.map(f => {
         const std   = estandar(f);
@@ -647,13 +641,10 @@
       `;
     }
 
-    // Informe IA (se renderiza el markdown básico: **negrita**). Si la capa
-    // de IA falló, se dice por qué en vez de dejar solo el texto genérico.
+    // Informe IA (markdown básico: **negrita**)
     const aiEl = document.getElementById('aiReport');
     aiEl.innerHTML = renderReport(data.ai_report.report);
     if (data.ai_report.error) {
-      // El texto de `report` ya explica el fallo en términos comprensibles;
-      // aquí solo se aclara el alcance, sin volcar la excepción al usuario.
       aiEl.innerHTML += `<p class="ai-error">Las otras dos capas del análisis no se ven `
         + `afectadas: los metadatos y la detección visual se procesan en local.</p>`;
     }
@@ -678,9 +669,7 @@
       .replace(/"/g,'&quot;');
   }
 
-  // Renderiza el informe de la IA: escapa el HTML (seguridad) y luego
-  // convierte el markdown básico **negrita** en <strong>. Los saltos de
-  // línea se conservan vía CSS (.ai-text { white-space: pre-wrap }).
+  // Escapa el HTML y convierte **negrita** en <strong>
   function renderReport(str) {
     return escHtml(String(str).trim())
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
