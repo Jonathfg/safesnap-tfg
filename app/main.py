@@ -96,7 +96,7 @@ async def analyze(
     - Puntuación de riesgo global (0–100)
     """
     # ── VALIDACIÓN ──────────────────────────────────────────────────────────
-    # Rechazar por el tamaño declarado antes de leer el cuerpo
+    # Rechazar si el tamaño declarado ya supera el límite
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES * 1.1:
         raise HTTPException(status_code=413, detail="La imagen no puede superar 15 MB.")

@@ -43,27 +43,22 @@ def _strip_reasoning(text: str) -> str:
 
 def _prepare_image(image_bytes: bytes) -> bytes:
     """
-    Reduce la imagen al lado máximo admitido antes de enviarla a la API.
-    Si ya es pequeña, o si no se puede procesar, se devuelve tal cual.
+    Prepara la copia que se envía a la API: reducida al lado máximo admitido
+    y guardada de nuevo como JPEG, así que nunca lleva los metadatos del original.
     """
+    img = Image.open(io.BytesIO(image_bytes))
     try:
-        img = Image.open(io.BytesIO(image_bytes))
-        try:
-            img.draft("RGB", (MAX_SIDE_FOR_API, MAX_SIDE_FOR_API))
-        except Exception:
-            pass
-        # Aplicar la orientación EXIF antes de enviarla
-        img = ImageOps.exif_transpose(img)
-        if max(img.width, img.height) <= MAX_SIDE_FOR_API:
-            return image_bytes
-        img.thumbnail((MAX_SIDE_FOR_API, MAX_SIDE_FOR_API), Image.LANCZOS)
-        if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
-        return buf.getvalue()
+        img.draft("RGB", (MAX_SIDE_FOR_API, MAX_SIDE_FOR_API))
     except Exception:
-        return image_bytes
+        pass
+    # Aplicar la orientación EXIF antes de enviarla
+    img = ImageOps.exif_transpose(img)
+    img.thumbnail((MAX_SIDE_FOR_API, MAX_SIDE_FOR_API), Image.LANCZOS)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
 
 
 def _get_client() -> Groq:
@@ -124,18 +119,18 @@ def generate_report(
 
     prompt = _build_prompt(meta_summary, detection_summary)
 
-    # Ajustar el tamaño y codificar en base64 para la API
-    api_bytes = _prepare_image(image_bytes)
-    b64_image = base64.standard_b64encode(api_bytes).decode("utf-8")
-
-    # Detectar tipo MIME a partir de los bytes de cabecera, no de la extensión
-    mime = "image/jpeg"
-    if api_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-        mime = "image/png"
-    elif api_bytes[:4] == b"RIFF":
-        mime = "image/webp"
-
     try:
+        # Copia reducida y sin metadatos, codificada en base64 para la API
+        api_bytes = _prepare_image(image_bytes)
+        b64_image = base64.standard_b64encode(api_bytes).decode("utf-8")
+
+        # Detectar tipo MIME a partir de los bytes de cabecera, no de la extensión
+        mime = "image/jpeg"
+        if api_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            mime = "image/png"
+        elif api_bytes[:4] == b"RIFF":
+            mime = "image/webp"
+
         client = _get_client()
         response = client.chat.completions.create(
             model=MODEL,

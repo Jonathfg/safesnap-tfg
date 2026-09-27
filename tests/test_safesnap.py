@@ -218,3 +218,13 @@ def test_subidas_en_memoria():
     from starlette.formparsers import MultiPartParser
     limite = getattr(MultiPartParser, "spool_max_size", None) or getattr(MultiPartParser, "max_file_size")
     assert limite > MAX_UPLOAD_BYTES
+
+
+def test_copia_para_la_api_sin_metadatos():
+    from app.modules.ai_report import _prepare_image, MAX_SIDE_FOR_API
+    for original in (jpeg_con_metadatos(), png_con_texto(), webp_con_exif()):
+        enviada = _prepare_image(original)
+        img = Image.open(io.BytesIO(enviada))
+        assert img.format == "JPEG" and max(img.size) <= MAX_SIDE_FOR_API
+        assert not img.info.get("exif") and not img.info.get("xmp")
+        assert b"Autor de prueba" not in enviada
