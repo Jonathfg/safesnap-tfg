@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.formparsers import MultiPartParser
 
 from app.modules.metadata   import extract_metadata, strip_metadata
 from app.modules.vision     import analyze_image, _get_model, _release_memory
@@ -34,6 +35,12 @@ app = FastAPI(
 _MIME = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB
+
+# Starlette pasa a un fichero temporal en disco las subidas de más de 1 MB.
+# Con este límite la imagen se queda en memoria de principio a fin.
+for _attr in ("spool_max_size", "max_file_size"):
+    if hasattr(MultiPartParser, _attr):
+        setattr(MultiPartParser, _attr, MAX_UPLOAD_BYTES + 1024 * 1024)
 
 
 def _sniff_format(data: bytes) -> str | None:

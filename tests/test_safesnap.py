@@ -11,7 +11,7 @@ import pytest
 from PIL import Image, PngImagePlugin
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import app, MAX_UPLOAD_BYTES
 from app.modules.metadata import extract_metadata, strip_metadata, _gps_to_decimal
 from app.modules.risk_score import calculate_global_risk
 from app.modules.vision import analyze_image
@@ -212,3 +212,9 @@ def test_analyze_rechaza_tamano(cliente):
         data={"generate_ai": "false"},
     )
     assert r.status_code == 413
+
+
+def test_subidas_en_memoria():
+    from starlette.formparsers import MultiPartParser
+    limite = getattr(MultiPartParser, "spool_max_size", None) or getattr(MultiPartParser, "max_file_size")
+    assert limite > MAX_UPLOAD_BYTES
