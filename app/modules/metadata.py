@@ -563,7 +563,9 @@ def strip_metadata(image_bytes: bytes) -> bytes:
         if fmt == "JPEG":
             img.save(out, format="JPEG", quality=95)
             try:
-                return piexif.remove(out.getvalue())
+                clean = io.BytesIO()
+                piexif.remove(out.getvalue(), clean)
+                return clean.getvalue()
             except Exception:
                 return out.getvalue()
         else:

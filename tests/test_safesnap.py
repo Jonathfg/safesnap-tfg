@@ -138,6 +138,20 @@ def test_copia_limpia_enderezada():
     assert limpio.size == (480, 640)
 
 
+def test_copia_limpia_pasa_por_piexif(monkeypatch):
+    completadas = []
+    original = piexif.remove
+
+    def espia(*args, **kwargs):
+        resultado = original(*args, **kwargs)
+        completadas.append(len(args))
+        return resultado
+
+    monkeypatch.setattr(piexif, "remove", espia)
+    strip_metadata(jpeg_con_metadatos())
+    assert completadas == [2]
+
+
 # ── Puntuación ───────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("m, v, nivel, total", [
